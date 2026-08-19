@@ -29,6 +29,7 @@ export default function ReaderEngine({
       <PdfViewer
         fileBlob={book.fileBlob}
         bookId={book.id!}
+        driveFileId={book.driveFileId}
         initialPage={initialPage}
         totalPages={book.totalChapters}
         onProgress={onProgress}
@@ -41,6 +42,7 @@ export default function ReaderEngine({
     <EpubViewer
       fileBlob={book.fileBlob}
       bookId={book.id!}
+      driveFileId={book.driveFileId}
       initialCfi={progress?.cfi}
       onProgress={onProgress}
       settings={settings}

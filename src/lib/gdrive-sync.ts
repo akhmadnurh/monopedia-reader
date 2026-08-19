@@ -5,8 +5,8 @@ import {
   clearToken,
   TokenExpiredError,
 } from "./google-auth";
-import { exportSyncData, importSyncData, saveBook, getAllBooks, type SyncPayload } from "./db";
-import type { BookItem } from "@/types/book";
+import { exportSyncData, importSyncData, saveBook, saveProgress, getAllBooks, type SyncPayload } from "./db";
+import type { BookItem, ReadingProgress } from "@/types/book";
 
 const FOLDER_NAME = "Monopedia Reader";
 const SYNC_FILENAME = "metadata.json";
@@ -98,11 +98,9 @@ export function clearCachedFolderId(): void {
 export async function getOrCreateFolder(): Promise<string> {
   assertTokenValid();
 
-  // 1a. Return cached folderId if available
   const cached = getCachedFolderId();
   if (cached) return cached;
 
-  // 1b. Query Drive for existing folder
   const q = encodeURIComponent(
     `name='${FOLDER_NAME}' and mimeType='${MIME_FOLDER}' and trashed=false`,
   );
@@ -116,7 +114,6 @@ export async function getOrCreateFolder(): Promise<string> {
     return folderId;
   }
 
-  // 1c. Folder doesn't exist — create it in My Drive root
   const created = await fetchJsonWithTimeout<IdOnly>(
     "https://www.googleapis.com/drive/v3/files",
     {
@@ -133,7 +130,6 @@ export async function getOrCreateFolder(): Promise<string> {
   return created.id;
 }
 
-// Alias — all internal callers use this
 const getOrCreateSyncFolder = getOrCreateFolder;
 
 // ---------------------------------------------------------------------------
@@ -231,11 +227,9 @@ export async function uploadBookFile(
     const ext = book.fileType === "pdf" ? "pdf" : "epub";
     const safeName = `${book.title.replace(/[^a-zA-Z0-9\-_ ]/g, "_").slice(0, 80)}.${ext}`;
 
-    // Check if file already exists on Drive
     const existing = await findFileInFolder(folderId, safeName);
     if (existing) return existing.id;
 
-    // Multipart upload — metadata + binary blob in single request
     const created = await fetchJsonWithTimeout<IdOnly>(
       "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart",
       {
@@ -254,7 +248,10 @@ export async function uploadBookFile(
 }
 
 // ---------------------------------------------------------------------------
-// 5b. Download all books from Drive that are not yet in local DB
+// 5b. Pull all books from Drive — metadata.json is Single Source of Truth
+//     - Title/author come from metadata.json, NOT from Drive filename
+//     - Cover thumbnail extracted from epub/pdf blob
+//     - Reading progress saved to IndexedDB progress table
 // ---------------------------------------------------------------------------
 
 export interface PullResult {
@@ -270,7 +267,39 @@ export async function downloadAllBooks(): Promise<PullResult> {
   const folderId = await getOrCreateSyncFolder();
   const result: PullResult = { imported: 0, skipped: 0, errors: 0, errorDetails: [] };
 
-  // List all epub/pdf files in the sync folder
+  // ── Step 1: Download metadata.json (Single Source of Truth) ──
+  let remoteMeta: SyncPayload | null = null;
+  const metaFile = await findFileInFolder(folderId, SYNC_FILENAME);
+  if (metaFile) {
+    try {
+      remoteMeta = await fetchJsonWithTimeout<SyncPayload>(
+        `https://www.googleapis.com/drive/v3/files/${metaFile.id}?alt=media`,
+      );
+    } catch {
+      // metadata.json unreadable — continue without it
+    }
+  }
+
+  // Map: driveFileId → { title, author } from metadata.json
+  const metaByDriveId = new Map<string, { title: string; author: string }>();
+  if (remoteMeta?.books) {
+    for (const b of remoteMeta.books) {
+      metaByDriveId.set(b.driveFileId, { title: b.title, author: b.author });
+    }
+  }
+
+  // Map: driveFileId → ReadingProgress from metadata.json
+  const progressByDriveId = new Map<string, ReadingProgress>();
+  if (remoteMeta?.progress) {
+    for (const p of remoteMeta.progress) {
+      const dfId = p.driveFileId;
+      if (dfId) {
+        progressByDriveId.set(dfId, p);
+      }
+    }
+  }
+
+  // ── Step 2: List all epub/pdf files in the sync folder ──
   const q = encodeURIComponent(
     `'${folderId}' in parents and trashed=false and (mimeType='application/epub+zip' or mimeType='application/pdf' or name contains '.epub' or name contains '.pdf')`,
   );
@@ -279,22 +308,17 @@ export async function downloadAllBooks(): Promise<PullResult> {
   );
 
   const localBooks = await getAllBooks();
-  const localTitles = new Set(localBooks.map((b) => b.title.toLowerCase()));
   const localDriveIds = new Set(localBooks.map((b) => b.driveFileId).filter(Boolean));
 
   for (const file of res.files) {
     try {
+      // Skip if already synced
       if (localDriveIds.has(file.id)) {
         result.skipped++;
         continue;
       }
 
-      const title = file.name.replace(/\.(epub|pdf)$/i, "").trim();
-      if (localTitles.has(title.toLowerCase())) {
-        result.skipped++;
-        continue;
-      }
-
+      // ── Step 3: Download file blob ──
       const driveRes = await fetchWithTimeout(
         `https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`,
       );
@@ -303,23 +327,20 @@ export async function downloadAllBooks(): Promise<PullResult> {
         clearToken();
         throw new TokenExpiredError();
       }
-      if (!driveRes.ok) {
-        throw new Error(`HTTP ${driveRes.status}`);
-      }
+      if (!driveRes.ok) throw new Error(`HTTP ${driveRes.status}`);
 
       const blob = await driveRes.blob();
+      if (blob.size === 0) throw new Error("Downloaded file is empty");
 
-      if (blob.size === 0) {
-        throw new Error("Downloaded file is empty");
-      }
-
+      // ── Step 4: Determine file type ──
       const ext = file.name.split(".").pop()?.toLowerCase();
       const fileType: "epub" | "pdf" = ext === "pdf" ? "pdf" : "epub";
 
-      // Parse metadata from the downloaded blob
-      let parsedTitle = title;
+      // ── Step 5: Parse blob → extract metadata + cover thumbnail ──
+      let parsedTitle = file.name.replace(/\.(epub|pdf)$/i, "").trim();
       let parsedAuthor = "-";
       let totalChapters = 0;
+      let cover: Blob | null = null;
 
       try {
         if (fileType === "epub") {
@@ -328,17 +349,29 @@ export async function downloadAllBooks(): Promise<PullResult> {
           if (parsed.title && parsed.title !== "Untitled") parsedTitle = parsed.title;
           if (parsed.author && parsed.author !== "-") parsedAuthor = parsed.author;
           totalChapters = parsed.chapters.length;
+          cover = parsed.cover;
         } else {
           const { parsePdf } = await import("./pdf-parser");
           const parsed = await parsePdf(blob, file.name);
           if (parsed.title && parsed.title !== "Untitled PDF") parsedTitle = parsed.title;
           if (parsed.author && parsed.author !== "-") parsedAuthor = parsed.author;
           totalChapters = parsed.totalPages;
+          cover = parsed.cover;
         }
       } catch {
-        // Metadata parsing failed — use filename-derived values (non-fatal)
+        // Non-fatal: use filename-derived values
       }
 
+      // ── Step 6: Override title/author from metadata.json (SSOT) ──
+      const remoteBookMeta = metaByDriveId.get(file.id);
+      if (remoteBookMeta) {
+        if (remoteBookMeta.title) parsedTitle = remoteBookMeta.title;
+        if (remoteBookMeta.author && remoteBookMeta.author !== "-") {
+          parsedAuthor = remoteBookMeta.author;
+        }
+      }
+
+      // ── Step 7: Save book to IndexedDB (cover included) ──
       const book: Omit<BookItem, "id"> = {
         title: parsedTitle,
         author: parsedAuthor,
@@ -347,12 +380,26 @@ export async function downloadAllBooks(): Promise<PullResult> {
         addedAt: Date.now(),
         fileSize: blob.size,
         fileBlob: blob,
+        cover: cover ?? undefined,
         driveFileId: file.id,
         syncStatus: "synced",
       };
 
-      await saveBook(book);
-      localTitles.add(parsedTitle.toLowerCase());
+      const localId = await saveBook(book);
+
+      // ── Step 8: Save reading progress from metadata.json (matched by driveFileId) ──
+      const remoteProgress = progressByDriveId.get(file.id);
+      if (remoteProgress && remoteProgress.percentage > 0) {
+        await saveProgress({
+          bookId: localId,
+          cfi: remoteProgress.cfi,
+          percentage: remoteProgress.percentage,
+          chapterTitle: remoteProgress.chapterTitle,
+          lastReadAt: remoteProgress.lastReadAt,
+          driveFileId: file.id,
+        });
+      }
+
       result.imported++;
     } catch (err) {
       result.errors++;

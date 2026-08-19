@@ -22,6 +22,7 @@ export interface ReadingProgress {
   percentage: number;
   chapterTitle: string;
   lastReadAt: number;
+  driveFileId?: string;
 }
 
 export interface Highlight {

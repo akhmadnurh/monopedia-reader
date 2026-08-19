@@ -11,6 +11,7 @@ import { THEMES, FONT_FAMILIES } from "@/lib/reader-settings";
 interface EpubViewerProps {
   fileBlob: Blob;
   bookId: number;
+  driveFileId?: string;
   initialCfi?: string;
   onProgress?: (progress: ReadingProgress) => void;
   settings: ReaderSettings;
@@ -19,6 +20,7 @@ interface EpubViewerProps {
 export default function EpubViewer({
   fileBlob,
   bookId,
+  driveFileId,
   initialCfi,
   onProgress,
   settings,
@@ -75,6 +77,7 @@ export default function EpubViewer({
         const progress: ReadingProgress = {
           bookId, cfi, percentage: Math.round(pct * 100),
           chapterTitle, lastReadAt: Date.now(),
+          driveFileId,
         };
         saveProgress(progress);
         onProgress?.(progress);

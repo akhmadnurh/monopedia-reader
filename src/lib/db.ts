@@ -13,6 +13,10 @@ db.version(1).stores({
   highlights: "++id, bookId, createdAt",
 });
 
+db.version(2).stores({
+  progress: "bookId, lastReadAt, driveFileId",
+});
+
 export async function saveBook(book: Omit<BookItem, "id">): Promise<number> {
   const id = await db.books.add(book as BookItem);
   return id!;
@@ -55,6 +59,8 @@ export async function saveProgress(progress: ReadingProgress): Promise<void> {
   const finalProgress: ReadingProgress = {
     ...progress,
     percentage: maxPercentage,
+    // Preserve existing driveFileId if not provided
+    driveFileId: progress.driveFileId ?? existing?.driveFileId,
   };
   // Auto-finished: if user reached last page, mark 100%
   if (progress.cfi.startsWith("page-")) {
@@ -90,26 +96,79 @@ export async function deleteHighlight(id: number): Promise<void> {
   await db.highlights.delete(id);
 }
 
+export interface BookMetadata {
+  driveFileId: string;
+  title: string;
+  author: string;
+  fileType: "epub" | "pdf";
+}
+
 export interface SyncPayload {
+  books: BookMetadata[];
   progress: ReadingProgress[];
   highlights: Highlight[];
   exportedAt: number;
 }
 
 export async function exportSyncData(): Promise<SyncPayload> {
-  const [progress, highlights] = await Promise.all([
+  const [allBooks, progress, highlights] = await Promise.all([
+    db.books.toArray(),
     db.progress.toArray(),
     db.highlights.toArray(),
   ]);
-  return { progress, highlights, exportedAt: Date.now() };
+
+  // Only include books that have a driveFileId (already synced to Drive)
+  const books: BookMetadata[] = allBooks
+    .filter((b) => b.driveFileId)
+    .map((b) => ({
+      driveFileId: b.driveFileId!,
+      title: b.title,
+      author: b.author,
+      fileType: b.fileType,
+    }));
+
+  // Enrich progress entries with driveFileId for cross-device matching
+  const bookById = new Map(allBooks.map((b) => [b.id, b]));
+  const enrichedProgress = progress.map((p) => {
+    const book = bookById.get(p.bookId);
+    return {
+      ...p,
+      driveFileId: p.driveFileId ?? book?.driveFileId,
+    };
+  });
+
+  return { books, progress: enrichedProgress, highlights, exportedAt: Date.now() };
 }
 
 export async function importSyncData(payload: SyncPayload): Promise<void> {
-  await db.transaction("rw", [db.progress, db.highlights], async () => {
+  await db.transaction("rw", [db.books, db.progress, db.highlights], async () => {
+    // Merge book metadata — update title/author if we already have the book locally
+    if (payload.books) {
+      for (const meta of payload.books) {
+        const existing = await db.books
+          .where("driveFileId")
+          .equals(meta.driveFileId)
+          .first();
+        if (existing) {
+          await db.books.update(existing.id!, {
+            title: meta.title,
+            author: meta.author,
+          });
+        }
+      }
+    }
+
     for (const p of payload.progress) {
       const existing = await db.progress.get(p.bookId);
-      if (!existing || p.lastReadAt > existing.lastReadAt) {
-        await db.progress.put(p);
+      // Accept if: no existing entry, or remote is newer, or remote has driveFileId we don't
+      const shouldUpdate = !existing
+        || p.lastReadAt > existing.lastReadAt
+        || (p.driveFileId && !existing.driveFileId);
+      if (shouldUpdate) {
+        await db.progress.put({
+          ...p,
+          driveFileId: p.driveFileId ?? existing?.driveFileId,
+        });
       }
     }
     for (const h of payload.highlights) {

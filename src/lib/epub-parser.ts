@@ -31,13 +31,26 @@ export async function parseEpub(file: Blob, fileName?: string): Promise<ParsedEp
 
   let cover: Blob | null = null;
   try {
+    // coverUrl() may return a blob: URL tied to the book's internal ArrayBuffer.
+    // We must fetch it BEFORE book.destroy() revokes the URL.
     const coverUrl = await book.coverUrl();
     if (coverUrl) {
       const res = await fetch(coverUrl);
-      cover = await res.blob();
+      if (res.ok) {
+        cover = await res.blob();
+      }
     }
   } catch {
-    cover = null;
+    // Fallback: try to extract cover from the book's archive directly
+    try {
+      const coverHref = (book as any).packaging?.metadata?.cover;
+      if (coverHref) {
+        const blob = await (book as any).archive?.getBlob(coverHref);
+        if (blob) cover = blob;
+      }
+    } catch {
+      cover = null;
+    }
   }
 
   const chapters: ChapterInfo[] = [];

@@ -9,6 +9,7 @@ import { THEMES } from "@/lib/reader-settings";
 interface PdfViewerProps {
   fileBlob: Blob;
   bookId: number;
+  driveFileId?: string;
   initialPage?: number;
   totalPages?: number;
   onProgress?: (progress: ReadingProgress) => void;
@@ -18,6 +19,7 @@ interface PdfViewerProps {
 export default function PdfViewer({
   fileBlob,
   bookId,
+  driveFileId,
   initialPage = 1,
   totalPages: totalPagesProp,
   onProgress,
@@ -252,11 +254,12 @@ export default function PdfViewer({
       percentage: Math.round((currentPage / totalPages) * 100),
       chapterTitle: `Page ${currentPage} of ${totalPages}`,
       lastReadAt: Date.now(),
+      driveFileId,
     };
     saveProgress(progress);
     onProgress?.(progress);
     document.dispatchEvent(new CustomEvent("monopedia:progress", { detail: progress }));
-  }, [currentPage, totalPages, bookId, ready]);
+  }, [currentPage, totalPages, bookId, ready, driveFileId]);
 
   // Navigation
   const goToNext = useCallback(() => setCurrentPage((p) => Math.min(p + 1, totalPages)), [totalPages]);
