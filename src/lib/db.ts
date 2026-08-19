@@ -34,6 +34,20 @@ export async function deleteBook(id: number): Promise<void> {
   });
 }
 
+export async function updateBookMetadata(
+  id: number,
+  updates: Partial<Pick<BookItem, "title" | "author">>,
+): Promise<void> {
+  await db.books.update(id, updates);
+}
+
+export async function deleteBookCompletely(id: number): Promise<{ driveFileId?: string }> {
+  const book = await db.books.get(id);
+  const driveFileId = book?.driveFileId;
+  await deleteBook(id);
+  return { driveFileId };
+}
+
 export async function saveProgress(progress: ReadingProgress): Promise<void> {
   await db.progress.put(progress);
 }

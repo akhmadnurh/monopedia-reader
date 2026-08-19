@@ -1,12 +1,35 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import { ArrowLeft } from "lucide-react";
 import GoogleDriveButton from "@/components/GoogleDriveButton";
 import InstallPwaButton from "@/components/InstallPwaButton";
+import { isTokenValid } from "@/lib/google-auth";
 
 export default function SettingsPage() {
+  const [connected, setConnected] = useState(false);
+
+  // Re-check on mount and whenever GoogleDriveButton toggles
+  useEffect(() => {
+    setConnected(isTokenValid());
+  }, []);
+
+  // Listen for storage changes (token stored/cleared from another tab or GoogleDriveButton)
+  useEffect(() => {
+    function handleStorage() {
+      setConnected(isTokenValid());
+    }
+    window.addEventListener("storage", handleStorage);
+    // Also poll occasionally in case same-tab changes happen
+    const id = setInterval(handleStorage, 2000);
+    return () => {
+      window.removeEventListener("storage", handleStorage);
+      clearInterval(id);
+    };
+  }, []);
+
   return (
-    <div className="flex flex-col min-h-screen">
+    <div className="flex min-h-screen flex-col">
       <header className="sticky top-0 z-10 border-b border-zinc-800 bg-background/80 backdrop-blur-sm">
         <div className="mx-auto flex h-14 max-w-5xl items-center gap-3 px-4">
           <a
@@ -44,7 +67,7 @@ export default function SettingsPage() {
                 Connect your Google Drive to sync books and reading progress across devices.
                 Your files stay in your own Drive — we never store them on external servers.
               </p>
-              <GoogleDriveButton />
+              <GoogleDriveButton onConnectionChange={setConnected} />
             </div>
           </section>
 
@@ -64,7 +87,14 @@ export default function SettingsPage() {
               </div>
               <div className="flex justify-between text-sm">
                 <span className="text-zinc-400">Storage</span>
-                <span className="text-zinc-200">Offline (IndexedDB)</span>
+                {connected ? (
+                  <span className="inline-flex items-center gap-1.5 text-emerald-400">
+                    <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                    Google Drive (Synced)
+                  </span>
+                ) : (
+                  <span className="text-zinc-200">Offline (IndexedDB)</span>
+                )}
               </div>
             </div>
           </section>

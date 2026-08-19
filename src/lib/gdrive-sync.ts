@@ -1,4 +1,4 @@
-import { driveFetchJson, type TokenExpiredError } from "./google-auth";
+import { driveFetch, driveFetchJson, type TokenExpiredError } from "./google-auth";
 import { exportSyncData, importSyncData, type SyncPayload } from "./db";
 import type { BookItem } from "@/types/book";
 
@@ -154,6 +154,22 @@ export async function uploadBookFile(
     return created.id;
   } catch {
     return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 5b. Delete a file from Google Drive by its file ID
+// ---------------------------------------------------------------------------
+
+export async function deleteFileFromDrive(fileId: string): Promise<boolean> {
+  try {
+    const res = await driveFetch(
+      `https://www.googleapis.com/drive/v3/files/${fileId}`,
+      { method: "DELETE" },
+    );
+    return res.ok;
+  } catch {
+    return false;
   }
 }
 

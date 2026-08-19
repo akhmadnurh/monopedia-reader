@@ -41,15 +41,14 @@ export function useDriveSync(options: UseDriveSyncOptions = {}) {
       setStatus("success");
       setLastSyncAt(Date.now());
       onSyncComplete?.(result);
-      // Reset to idle after a brief "success" flash
       setTimeout(() => setStatus((s) => (s === "success" ? "idle" : s)), 3000);
     } catch (err) {
+      // Never let sync errors crash the UI — degrade gracefully to offline
+      setStatus("idle");
       if (err instanceof TokenExpiredError) {
-        setStatus("error");
-        setError("Google Drive token expired. Please reconnect.");
+        setError("Token expired");
         onAuthExpired?.();
       } else {
-        setStatus("error");
         setError(err instanceof Error ? err.message : "Sync failed");
       }
     } finally {
@@ -59,17 +58,25 @@ export function useDriveSync(options: UseDriveSyncOptions = {}) {
 
   /** Debounced upload — call this frequently; it batches to every `debounceMs` */
   const scheduleUpload = useCallback(() => {
-    if (!isTokenValid()) return;
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => {
-      doSync();
-    }, debounceMs);
+    try {
+      if (!isTokenValid()) return;
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+      debounceRef.current = setTimeout(() => {
+        doSync();
+      }, debounceMs);
+    } catch {
+      // Silently ignore — offline mode continues working
+    }
   }, [debounceMs, doSync]);
 
-  /** Immediate upload (no debounce) */
+  /** Immediate upload (no debounce) — never throws */
   const uploadNow = useCallback(async () => {
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    await doSync();
+    try {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+      await doSync();
+    } catch {
+      // Silently degrade to offline
+    }
   }, [doSync]);
 
   const syncBook = useCallback(

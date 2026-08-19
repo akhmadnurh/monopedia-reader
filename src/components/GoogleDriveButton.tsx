@@ -9,12 +9,14 @@ import {
   clearToken,
 } from "@/lib/google-auth";
 
-export default function GoogleDriveButton() {
+export default function GoogleDriveButton({ onConnectionChange }: { onConnectionChange?: (connected: boolean) => void } = {}) {
   const [connected, setConnected] = useState(false);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    setConnected(isTokenValid());
+    const valid = isTokenValid();
+    setConnected(valid);
+    onConnectionChange?.(valid);
   }, []);
 
   const login = useGoogleLogin({
@@ -22,6 +24,7 @@ export default function GoogleDriveButton() {
     onSuccess: (tokenResponse) => {
       storeToken(tokenResponse.access_token, tokenResponse.expires_in);
       setConnected(true);
+      onConnectionChange?.(true);
       setLoading(false);
     },
     onError: () => {
@@ -33,6 +36,7 @@ export default function GoogleDriveButton() {
     if (connected) {
       clearToken();
       setConnected(false);
+      onConnectionChange?.(false);
     } else {
       setLoading(true);
       login();

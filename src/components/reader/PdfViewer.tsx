@@ -23,16 +23,16 @@ export default function PdfViewer({
   onProgress,
   settings,
 }: PdfViewerProps) {
+  const wrapperRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const textLayerRef = useRef<HTMLDivElement>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
   const pdfRef = useRef<Awaited<ReturnType<typeof loadPdf>> | null>(null);
   const renderTaskRef = useRef<{ cancel: () => void } | null>(null);
 
   const [currentPage, setCurrentPage] = useState(initialPage);
   const [totalPages, setTotalPages] = useState(totalPagesProp || 0);
-  const [scale, setScale] = useState(1);
-  const [loading, setLoading] = useState(true);
+  const [ready, setReady] = useState(false);
+  const [renderKey, setRenderKey] = useState(0);
 
   async function loadPdf(data: ArrayBuffer) {
     const pdfjsLib = await import("pdfjs-dist");
@@ -43,48 +43,78 @@ export default function PdfViewer({
     return pdfjsLib.getDocument({ data }).promise;
   }
 
-  // Load PDF
+  // Load PDF + compute initial fit scale before rendering
   useEffect(() => {
     let cancelled = false;
+
     async function load() {
       const data = await fileBlob.arrayBuffer();
       const pdf = await loadPdf(data);
       if (cancelled) return;
+
       pdfRef.current = pdf;
       setTotalPages(pdf.numPages);
-      setLoading(false);
+
+      // Wait a tick for wrapperRef to mount
+      await new Promise((r) => setTimeout(r, 0));
+      if (cancelled) return;
+
+      setReady(true);
     }
+
     load();
     return () => { cancelled = true; pdfRef.current = null; };
   }, [fileBlob]);
 
-  // Render page with HiDPI + text layer
+  // Compute fit scale from container + PDF page
+  async function getFitScale(): Promise<number> {
+    if (!wrapperRef.current || !pdfRef.current) return 1;
+    const page = await pdfRef.current.getPage(1);
+    const viewport = page.getViewport({ scale: 1 });
+    const containerWidth = wrapperRef.current.clientWidth;
+    if (containerWidth <= 0) return 1;
+    return containerWidth / viewport.width;
+  }
+
+  // Render page whenever currentPage or renderKey changes
   useEffect(() => {
     const canvas = canvasRef.current;
     const textLayerEl = textLayerRef.current;
+    const wrapper = wrapperRef.current;
     const pdf = pdfRef.current;
-    if (!canvas || !textLayerEl || !pdf || loading) return;
+    if (!canvas || !textLayerEl || !wrapper || !pdf || !ready) return;
 
     let cancelled = false;
 
     async function renderPage() {
       renderTaskRef.current?.cancel();
+
       const page = await pdf!.getPage(currentPage);
       if (cancelled) return;
 
       const dpr = window.devicePixelRatio || 1;
-      const viewport = page.getViewport({ scale: scale * dpr });
-      const ctx = canvas!.getContext("2d")!;
+      const fitScale = await getFitScale();
+      const viewport = page.getViewport({ scale: fitScale * dpr });
+
+      const ctx = canvas!.getContext("2d");
+      if (!ctx) return;
 
       canvas!.width = Math.floor(viewport.width);
       canvas!.height = Math.floor(viewport.height);
-      canvas!.style.width = `${Math.floor(viewport.width / dpr)}px`;
-      canvas!.style.height = `${Math.floor(viewport.height / dpr)}px`;
+      canvas!.style.width = "100%";
+      canvas!.style.height = "auto";
+      canvas!.style.maxWidth = "100%";
 
       const renderTask = page.render({ canvas: canvas!, canvasContext: ctx, viewport });
       renderTaskRef.current = renderTask;
 
-      try { await renderTask.promise; } catch { return; }
+      try {
+        await renderTask.promise;
+      } catch (err: unknown) {
+        if (err && typeof err === "object" && "name" in err && (err as { name: string }).name === "RenderingCancelledException") return;
+        console.warn("PDF render error:", err);
+        return;
+      }
       if (cancelled) return;
 
       // Text layer
@@ -102,10 +132,13 @@ export default function PdfViewer({
     }
 
     renderPage();
-    return () => { cancelled = true; renderTaskRef.current?.cancel(); };
-  }, [currentPage, scale, loading]);
+    return () => {
+      cancelled = true;
+      renderTaskRef.current?.cancel();
+    };
+  }, [currentPage, ready, renderKey]);
 
-  // Text selection → dispatch custom event for FloatingToolbar
+  // Text selection → FloatingToolbar
   useEffect(() => {
     function handleSelect() {
       const sel = window.getSelection();
@@ -124,7 +157,7 @@ export default function PdfViewer({
 
   // Auto-save progress
   useEffect(() => {
-    if (loading || totalPages === 0) return;
+    if (!ready || totalPages === 0) return;
     const progress: ReadingProgress = {
       bookId, cfi: `page-${currentPage}`,
       percentage: Math.round((currentPage / totalPages) * 100),
@@ -133,37 +166,23 @@ export default function PdfViewer({
     };
     saveProgress(progress);
     onProgress?.(progress);
-    // Dispatch so PdfBottomBar can track page number
     document.dispatchEvent(new CustomEvent("monopedia:progress", { detail: progress }));
-  }, [currentPage, totalPages, bookId]);
-
-  // Responsive scale
-  useEffect(() => {
-    function handleResize() {
-      if (!containerRef.current || !pdfRef.current || loading) return;
-      pdfRef.current.getPage(1).then((page) => {
-        const vp = page.getViewport({ scale: 1 });
-        setScale((containerRef.current!.clientWidth - 32) / vp.width);
-      });
-    }
-    handleResize();
-    window.addEventListener("resize", handleResize);
-    return () => window.removeEventListener("resize", handleResize);
-  }, [loading]);
+  }, [currentPage, totalPages, bookId, ready]);
 
   const goToNext = useCallback(() => setCurrentPage((p) => Math.min(p + 1, totalPages)), [totalPages]);
   const goToPrev = useCallback(() => setCurrentPage((p) => Math.max(p - 1, 1)), []);
-  const zoomIn = useCallback(() => setScale((s) => Math.min(s + 0.25, 3)), []);
-  const zoomOut = useCallback(() => setScale((s) => Math.max(s - 0.25, 0.5)), []);
-  const fitWidth = useCallback(() => {
-    if (!containerRef.current || !pdfRef.current || loading) return;
-    pdfRef.current.getPage(1).then((page) => {
-      const vp = page.getViewport({ scale: 1 });
-      setScale((containerRef.current!.clientWidth - 32) / vp.width);
-    });
-  }, [loading]);
+  const refit = useCallback(() => setRenderKey((k) => k + 1), []);
 
-  // Listen for navigation events from floating bottom bar
+  // Refit on resize
+  useEffect(() => {
+    function handleResize() {
+      refit();
+    }
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, [refit]);
+
+  // Listen for bottom bar events
   useEffect(() => {
     function handleNav(e: Event) {
       const dir = (e as CustomEvent).detail;
@@ -172,9 +191,9 @@ export default function PdfViewer({
     }
     function handleZoom(e: Event) {
       const action = (e as CustomEvent).detail;
-      if (action === "in") zoomIn();
-      else if (action === "out") zoomOut();
-      else if (action === "fit") fitWidth();
+      if (action === "in" || action === "out" || action === "fit") {
+        refit();
+      }
     }
     document.addEventListener("monopedia:pdf-nav", handleNav);
     document.addEventListener("monopedia:pdf-zoom", handleZoom);
@@ -182,8 +201,9 @@ export default function PdfViewer({
       document.removeEventListener("monopedia:pdf-nav", handleNav);
       document.removeEventListener("monopedia:pdf-zoom", handleZoom);
     };
-  }, [goToNext, goToPrev, zoomIn, zoomOut, fitWidth]);
+  }, [goToNext, goToPrev, refit]);
 
+  // Keyboard nav
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
       if (e.key === "ArrowRight" || e.key === "ArrowDown") goToNext();
@@ -193,8 +213,9 @@ export default function PdfViewer({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [goToNext, goToPrev]);
 
+  // Swipe nav
   useEffect(() => {
-    const el = containerRef.current;
+    const el = wrapperRef.current;
     if (!el) return;
     let startX = 0;
     const onTouchStart = (e: TouchEvent) => { startX = e.touches[0].clientX; };
@@ -213,7 +234,11 @@ export default function PdfViewer({
   const themeCfg = THEMES[settings.theme];
 
   return (
-    <div className="flex h-full flex-col">
+    <div
+      ref={wrapperRef}
+      className="flex h-full w-full flex-col items-center overflow-auto"
+      style={{ background: themeCfg.bg }}
+    >
       <style>{`
         .pdf-text-layer {
           position: absolute; overflow: hidden; opacity: 0.25; line-height: 1;
@@ -226,23 +251,16 @@ export default function PdfViewer({
         .pdf-text-layer span::selection { background: rgba(0, 100, 200, 0.3); color: transparent; }
       `}</style>
 
-      {/* PDF canvas — scrollable, centered */}
-      <div
-        ref={containerRef}
-        className="flex-1 overflow-auto flex items-center justify-center p-2"
-        style={{ background: themeCfg.bg, minHeight: 0 }}
-      >
-        {loading ? (
-          <div className="flex items-center justify-center py-20">
-            <div className="h-8 w-8 animate-spin rounded-full border-2 border-zinc-300 border-t-zinc-600" />
-          </div>
-        ) : (
-          <div className="relative my-4" style={{ padding: `0 ${settings.margin}em` }}>
-            <canvas ref={canvasRef} className="block shadow-lg mx-auto" />
-            <div ref={textLayerRef} className="pdf-text-layer" />
-          </div>
-        )}
-      </div>
+      {!ready ? (
+        <div className="flex items-center justify-center py-20">
+          <div className="h-8 w-8 animate-spin rounded-full border-2 border-zinc-300 border-t-zinc-600" />
+        </div>
+      ) : (
+        <div className="relative w-full" style={{ maxWidth: "100%", padding: `1em ${settings.margin}em` }}>
+          <canvas ref={canvasRef} className="block shadow-lg" />
+          <div ref={textLayerRef} className="pdf-text-layer" />
+        </div>
+      )}
     </div>
   );
 }

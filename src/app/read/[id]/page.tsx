@@ -20,11 +20,11 @@ import FloatingToolbar from "@/components/reader/FloatingToolbar";
 import AnnotationsSidebar from "@/components/reader/AnnotationsSidebar";
 
 /* ------------------------------------------------------------------ */
-/*  Sync indicator icon                                                 */
+/*  Sync indicator                                                      */
 /* ------------------------------------------------------------------ */
 function SyncIndicator({ status }: { status: SyncStatus }) {
   return (
-    <span className="flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium transition-colors">
+    <span className="flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium">
       {status === "syncing" && (
         <>
           <Loader2 className="h-3 w-3 animate-spin text-blue-400" />
@@ -38,10 +38,7 @@ function SyncIndicator({ status }: { status: SyncStatus }) {
         </>
       )}
       {status === "error" && (
-        <>
-          <AlertCircle className="h-3 w-3 text-red-400" />
-          <span className="text-red-400">Error</span>
-        </>
+        <span className="inline-block h-2 w-2 rounded-full bg-red-400" title="Sync error — will retry" />
       )}
       {status === "idle" && (
         <>
@@ -68,28 +65,36 @@ export default function ReadPage() {
   const [showAnnotations, setShowAnnotations] = useState(false);
   const [highlightRefreshKey, setHighlightRefreshKey] = useState(0);
   const [loading, setLoading] = useState(true);
-  const { status: syncStatus, scheduleUpload, uploadNow } = useDriveSync({
+
+  const { status: syncStatus, scheduleUpload } = useDriveSync({
     autoSyncInterval: 60_000,
     debounceMs: 2_000,
   });
+
   const progressDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const wakeLockRef = useRef<WakeLockSentinel | null>(null);
 
   // Load book
   useEffect(() => {
+    let cancelled = false;
     async function load() {
-      const [bookData, progressData] = await Promise.all([
-        getBookById(bookId), getProgress(bookId),
-      ]);
-      if (!bookData) { router.replace("/"); return; }
-      setBook(bookData);
-      setProgress(progressData);
-      setLoading(false);
+      try {
+        const [bookData, progressData] = await Promise.all([
+          getBookById(bookId), getProgress(bookId),
+        ]);
+        if (cancelled) return;
+        if (!bookData) { router.replace("/"); return; }
+        setBook(bookData);
+        setProgress(progressData);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
     }
     load();
+    return () => { cancelled = true; };
   }, [bookId, router]);
 
-  // Wake Lock — keep screen on while reading
+  // Wake Lock
   useEffect(() => {
     let cancelled = false;
     async function acquire() {
@@ -98,13 +103,12 @@ export default function ReadPage() {
           const lock = await navigator.wakeLock.request("screen");
           if (!cancelled) wakeLockRef.current = lock;
         }
-      } catch { /* not supported or denied */ }
+      } catch { /* not supported */ }
     }
     acquire();
     return () => { cancelled = true; wakeLockRef.current?.release(); };
   }, []);
 
-  // Re-acquire wake lock on visibility change (browsers release on tab switch)
   useEffect(() => {
     function handleVisibility() {
       if (document.visibilityState === "visible" && !wakeLockRef.current) {
@@ -117,7 +121,6 @@ export default function ReadPage() {
     return () => document.removeEventListener("visibilitychange", handleVisibility);
   }, []);
 
-  // Debounced progress sync
   const handleProgress = useCallback(
     (p: ReadingProgress) => {
       setProgress(p);
@@ -127,30 +130,26 @@ export default function ReadPage() {
     [scheduleUpload],
   );
 
-  // Save highlight
   const handleHighlight = useCallback(
     async (text: string, cfiRange: string, color: string) => {
-      const h: Omit<Highlight, "id"> = {
-        bookId, cfiRange, text, color, createdAt: Date.now(),
-      };
-      await saveHighlight(h);
-      setHighlightRefreshKey((k) => k + 1);
-      scheduleUpload();
+      try {
+        await saveHighlight({ bookId, cfiRange, text, color, createdAt: Date.now() });
+        setHighlightRefreshKey((k) => k + 1);
+        scheduleUpload();
+      } catch { /* offline save failed silently */ }
     },
     [bookId, scheduleUpload],
   );
 
-  // Save note
   const handleAddNote = useCallback(
     async (text: string, cfiRange: string) => {
       const note = prompt("Add a note:");
       if (note === null) return;
-      const h: Omit<Highlight, "id"> = {
-        bookId, cfiRange, text, color: "#93C5FD", note, createdAt: Date.now(),
-      };
-      await saveHighlight(h);
-      setHighlightRefreshKey((k) => k + 1);
-      scheduleUpload();
+      try {
+        await saveHighlight({ bookId, cfiRange, text, color: "#93C5FD", note, createdAt: Date.now() });
+        setHighlightRefreshKey((k) => k + 1);
+        scheduleUpload();
+      } catch { /* offline save failed silently */ }
     },
     [bookId, scheduleUpload],
   );
@@ -167,10 +166,32 @@ export default function ReadPage() {
     });
   }
 
+  // ── Loading state ──
   if (loading || !book) {
     return (
-      <div className="flex h-screen items-center justify-center bg-background">
+      <div className="flex h-[100dvh] w-screen items-center justify-center bg-background">
         <div className="h-8 w-8 animate-spin rounded-full border-2 border-zinc-300 border-t-zinc-600" />
+      </div>
+    );
+  }
+
+  // ── Invalid file fallback ──
+  if (!book.fileBlob || book.fileBlob.size === 0 || (book.fileType !== "epub" && book.fileType !== "pdf")) {
+    return (
+      <div className="flex h-[100dvh] w-screen flex-col items-center justify-center bg-background gap-4 p-6 text-center">
+        <div className="flex h-16 w-16 items-center justify-center rounded-full bg-red-900/30">
+          <AlertCircle className="h-8 w-8 text-red-400" />
+        </div>
+        <h2 className="text-lg font-semibold text-zinc-100">File Tidak Valid</h2>
+        <p className="max-w-sm text-sm text-zinc-400">
+          File buku ini tidak dapat dibuka. Kemungkinan file rusak atau format yang tidak didukung.
+        </p>
+        <button
+          onClick={() => router.push("/")}
+          className="mt-2 rounded-lg bg-zinc-100 px-5 py-2.5 text-sm font-medium text-zinc-900 hover:bg-white transition-colors"
+        >
+          Kembali ke Library
+        </button>
       </div>
     );
   }
@@ -179,17 +200,19 @@ export default function ReadPage() {
   const isPdf = book.fileType === "pdf";
 
   return (
-    <div className="flex h-screen flex-col" style={{ background: themeCfg.bg }}>
-
+    <div
+      className="flex w-screen flex-col overflow-hidden bg-background"
+      style={{ height: "100dvh", background: themeCfg.bg }}
+    >
       {/* ── Top Header ── */}
       <header
-        className="flex h-14 shrink-0 items-center justify-between border-b border-zinc-800 bg-background px-3 pt-[env(safe-area-inset-top)] md:px-4 z-20"
-        style={{ background: themeCfg.bg }}
+        className="flex w-full flex-none items-center justify-between border-b border-zinc-800 px-4 pt-[env(safe-area-inset-top)] z-30"
+        style={{ height: "3.5rem", background: themeCfg.bg }}
       >
-        <div className="flex items-center gap-2 min-w-0">
+        <div className="flex min-w-0 items-center gap-2">
           <button
             onClick={() => router.push("/")}
-            className="rounded-md p-2 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100 transition-colors"
+            className="flex-none rounded-md p-2 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100 transition-colors"
           >
             <ArrowLeft className="h-4 w-4" />
           </button>
@@ -205,7 +228,7 @@ export default function ReadPage() {
           </div>
         </div>
 
-        <div className="flex items-center gap-1">
+        <div className="flex flex-none items-center gap-1">
           <SyncIndicator status={syncStatus} />
           <button
             onClick={() => setShowAnnotations(!showAnnotations)}
@@ -222,11 +245,11 @@ export default function ReadPage() {
         </div>
       </header>
 
-      {/* ── Settings Panel (dropdown) ── */}
+      {/* ── Settings Panel ── */}
       {showSettings && (
         <div
-          className="border-b border-zinc-800 px-4 py-4 z-20"
-          style={{ background: `${themeCfg.bg}EE` }}
+          className="w-full flex-none border-b border-zinc-800 px-4 py-4 z-20"
+          style={{ background: themeCfg.bg }}
         >
           <div className="mx-auto max-w-5xl space-y-3">
             {/* Theme */}
@@ -278,7 +301,7 @@ export default function ReadPage() {
               <input
                 type="range" min={60} max={200} value={settings.fontSize}
                 onChange={(e) => updateSettings({ fontSize: Number(e.target.value) })}
-                className="flex-1 max-w-[200px] accent-zinc-400"
+                className="max-w-[200px] flex-1 accent-zinc-400"
               />
               <button
                 onClick={() => updateSettings({ fontSize: Math.min(200, settings.fontSize + 10) })}
@@ -296,7 +319,7 @@ export default function ReadPage() {
               <input
                 type="range" min={1} max={3} step={0.1} value={settings.lineHeight}
                 onChange={(e) => updateSettings({ lineHeight: Number(e.target.value) })}
-                className="flex-1 max-w-[200px] accent-zinc-400"
+                className="max-w-[200px] flex-1 accent-zinc-400"
               />
               <span className="min-w-[4ch] text-center text-xs" style={{ color: `${themeCfg.fg}88` }}>
                 {settings.lineHeight}
@@ -309,7 +332,7 @@ export default function ReadPage() {
               <input
                 type="range" min={0} max={15} step={1} value={settings.margin}
                 onChange={(e) => updateSettings({ margin: Number(e.target.value) })}
-                className="flex-1 max-w-[200px] accent-zinc-400"
+                className="max-w-[200px] flex-1 accent-zinc-400"
               />
               <span className="min-w-[4ch] text-center text-xs" style={{ color: `${themeCfg.fg}88` }}>
                 {settings.margin}em
@@ -319,19 +342,16 @@ export default function ReadPage() {
         </div>
       )}
 
-      {/* ── Main content area ── */}
-      <div className="flex flex-1" style={{ minHeight: 0 }}>
-        {/* Reader */}
-        <div className="flex-1" style={{ minHeight: 0 }}>
-          <ReaderEngine
-            book={book}
-            progress={progress}
-            onProgress={handleProgress}
-            settings={settings}
-          />
-        </div>
+      {/* ── Main content: viewer fills all remaining space ── */}
+      <main className="relative min-h-0 flex-1 w-full overflow-hidden">
+        <ReaderEngine
+          book={book}
+          progress={progress}
+          onProgress={handleProgress}
+          settings={settings}
+        />
 
-        {/* Annotations Sidebar */}
+        {/* Annotations Sidebar — overlays on mobile, inline on desktop */}
         <AnnotationsSidebar
           bookId={bookId}
           open={showAnnotations}
@@ -339,41 +359,25 @@ export default function ReadPage() {
           onJumpTo={handleJumpTo}
           refreshKey={highlightRefreshKey}
         />
-      </div>
+      </main>
 
-      {/* ── Floating Bottom Bar (PDF nav + zoom) ── */}
-      {isPdf && (
-        <PdfBottomBar
-          book={book}
-          settings={settings}
-          onProgress={handleProgress}
-        />
-      )}
+      {/* ── Floating Bottom Bar (PDF only) ── */}
+      {isPdf && <PdfBottomBar book={book} settings={settings} />}
 
-      {/* ── Floating Toolbar for text selection (EPUB + PDF) ── */}
+      {/* ── Floating Toolbar for text selection ── */}
       <FloatingToolbar onHighlight={handleHighlight} onAddNote={handleAddNote} />
     </div>
   );
 }
 
 /* ------------------------------------------------------------------ */
-/*  PDF Floating Bottom Bar — page nav + zoom                            */
+/*  PDF Floating Bottom Bar                                              */
 /* ------------------------------------------------------------------ */
-function PdfBottomBar({
-  book,
-  settings,
-  onProgress,
-}: {
-  book: BookItem;
-  settings: ReaderSettings;
-  onProgress: (p: ReadingProgress) => void;
-}) {
-  // We expose internal PDF page state via a global event channel
+function PdfBottomBar({ book, settings }: { book: BookItem; settings: ReaderSettings }) {
   const [currentPage, setCurrentPage] = useState(1);
   const totalPages = book.totalChapters;
   const themeCfg = THEMES[settings.theme];
 
-  // Listen for page changes from PdfViewer via custom event
   useEffect(() => {
     function handlePdfProgress(e: Event) {
       const detail = (e as CustomEvent<ReadingProgress>).detail;
@@ -381,57 +385,43 @@ function PdfBottomBar({
         setCurrentPage(parseInt(detail.cfi.replace("page-", ""), 10));
       }
     }
-    // PdfViewer dispatches this via onProgress → handleProgress in parent
-    // We listen to the reader's own progress state changes
     document.addEventListener("monopedia:progress", handlePdfProgress as EventListener);
     return () => document.removeEventListener("monopedia:progress", handlePdfProgress as EventListener);
   }, []);
 
-  // Sync from parent progress prop
-  // (this component re-renders when parent state changes)
-
-  function goToPrev() {
-    document.dispatchEvent(new CustomEvent("monopedia:pdf-nav", { detail: "prev" }));
+  function nav(dir: string) {
+    document.dispatchEvent(new CustomEvent("monopedia:pdf-nav", { detail: dir }));
   }
-  function goToNext() {
-    document.dispatchEvent(new CustomEvent("monopedia:pdf-nav", { detail: "next" }));
-  }
-  function zoomIn() {
-    document.dispatchEvent(new CustomEvent("monopedia:pdf-zoom", { detail: "in" }));
-  }
-  function zoomOut() {
-    document.dispatchEvent(new CustomEvent("monopedia:pdf-zoom", { detail: "out" }));
-  }
-  function fitWidth() {
-    document.dispatchEvent(new CustomEvent("monopedia:pdf-zoom", { detail: "fit" }));
+  function zoom(action: string) {
+    document.dispatchEvent(new CustomEvent("monopedia:pdf-zoom", { detail: action }));
   }
 
   return (
     <div
-      className="fixed bottom-4 left-1/2 z-20 flex -translate-x-1/2 items-center gap-3 rounded-full border border-zinc-700 bg-background/80 px-4 py-2 text-xs shadow-lg backdrop-blur-md"
+      className="fixed bottom-6 left-1/2 z-30 flex -translate-x-1/2 items-center gap-3 rounded-full border border-zinc-700 px-4 py-2 text-xs shadow-xl backdrop-blur-md"
       style={{
-        background: `${themeCfg.bg}CC`,
+        background: `${themeCfg.bg}E6`,
         color: themeCfg.fg,
         paddingBottom: "calc(0.5rem + env(safe-area-inset-bottom))",
       }}
     >
-      <button onClick={goToPrev} disabled={currentPage <= 1}
+      <button onClick={() => nav("prev")} disabled={currentPage <= 1}
         className="rounded px-2 py-1 hover:bg-zinc-700 disabled:opacity-30 transition-colors">
         Prev
       </button>
       <span className="min-w-[5ch] text-center tabular-nums text-zinc-400">
         {currentPage}/{totalPages}
       </span>
-      <button onClick={goToNext} disabled={currentPage >= totalPages}
+      <button onClick={() => nav("next")} disabled={currentPage >= totalPages}
         className="rounded px-2 py-1 hover:bg-zinc-700 disabled:opacity-30 transition-colors">
         Next
       </button>
 
       <div className="mx-1 h-4 w-px bg-zinc-700" />
 
-      <button onClick={zoomOut} className="rounded px-2 py-1 hover:bg-zinc-700 transition-colors">−</button>
-      <button onClick={fitWidth} className="rounded px-2 py-1 hover:bg-zinc-700 transition-colors">Fit</button>
-      <button onClick={zoomIn} className="rounded px-2 py-1 hover:bg-zinc-700 transition-colors">+</button>
+      <button onClick={() => zoom("out")} className="rounded px-2 py-1 hover:bg-zinc-700 transition-colors">−</button>
+      <button onClick={() => zoom("fit")} className="rounded px-2 py-1 hover:bg-zinc-700 transition-colors">Fit</button>
+      <button onClick={() => zoom("in")} className="rounded px-2 py-1 hover:bg-zinc-700 transition-colors">+</button>
     </div>
   );
 }
