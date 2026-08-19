@@ -55,7 +55,7 @@ export function BookActionMenu({
     <div ref={ref} className="absolute top-2 right-2 z-10" onClick={stopProp} onMouseDown={stopProp}>
       <button
         onClick={handleMenuToggle}
-        className="rounded-full bg-black/60 p-1.5 text-zinc-400 opacity-0 transition-opacity hover:text-zinc-100 group-hover:opacity-100"
+        className="rounded-full bg-black/40 p-1.5 text-white transition-colors hover:bg-black/60"
       >
         <MoreVertical className="h-3.5 w-3.5" />
       </button>
@@ -113,7 +113,7 @@ export function EditBookModal({
       const trimmedTitle = title.trim();
       const trimmedAuthor = author.trim();
       if (!trimmedTitle) return;
-      onSave(trimmedTitle, trimmedAuthor || "Unknown");
+      onSave(trimmedTitle, trimmedAuthor || "-");
       onClose();
     },
     [title, author, onSave, onClose],

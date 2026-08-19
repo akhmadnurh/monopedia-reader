@@ -1,4 +1,5 @@
 export type FileType = "epub" | "pdf";
+export type SyncStatus = "synced" | "pending" | "local";
 
 export interface BookItem {
   id?: number;
@@ -12,6 +13,7 @@ export interface BookItem {
   fileSize: number;
   fileBlob: Blob;
   driveFileId?: string;
+  syncStatus?: SyncStatus;
 }
 
 export interface ReadingProgress {

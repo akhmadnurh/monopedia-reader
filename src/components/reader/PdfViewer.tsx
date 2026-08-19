@@ -102,10 +102,14 @@ export default function PdfViewer({
       const ctx = canvas!.getContext("2d");
       if (!ctx) return;
 
+      // Set canvas internal resolution (HiDPI)
       canvas!.width = Math.floor(viewport.width);
       canvas!.height = Math.floor(viewport.height);
-      canvas!.style.width = "100%";
-      canvas!.style.height = "auto";
+      // Set CSS display size — reflects actual zoom level, enables scrolling when zoomed in
+      const displayWidth = Math.floor(viewport.width / dpr);
+      const displayHeight = Math.floor(viewport.height / dpr);
+      canvas!.style.width = `${displayWidth}px`;
+      canvas!.style.height = `${displayHeight}px`;
 
       const renderTask = page.render({ canvas: canvas!, canvasContext: ctx, viewport });
       renderTaskRef.current = renderTask;
@@ -119,11 +123,11 @@ export default function PdfViewer({
       }
       if (cancelled) return;
 
-      // Text layer
+      // Text layer — match canvas CSS dimensions
       const container = textLayerEl!;
       container.innerHTML = "";
-      container.style.width = canvas!.style.width;
-      container.style.height = canvas!.style.height;
+      container.style.width = `${displayWidth}px`;
+      container.style.height = `${displayHeight}px`;
 
       const textContent = await page.getTextContent();
       if (cancelled) return;
@@ -265,8 +269,8 @@ export default function PdfViewer({
           <div className="h-8 w-8 animate-spin rounded-full border-2 border-zinc-300 border-t-zinc-600" />
         </div>
       ) : (
-        <div className="flex w-full justify-center px-2 py-4">
-          <div className="relative" style={{ maxWidth: "100%" }}>
+        <div className="flex w-full justify-center overflow-auto max-w-full max-h-full p-4">
+          <div className="relative">
             <canvas ref={canvasRef} className="block shadow-lg" />
             <div ref={textLayerRef} className="pdf-text-layer" />
           </div>

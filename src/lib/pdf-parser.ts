@@ -5,7 +5,7 @@ export interface ParsedPdf {
   cover: Blob | null;
 }
 
-export async function parsePdf(file: Blob): Promise<ParsedPdf> {
+export async function parsePdf(file: Blob, fileName?: string): Promise<ParsedPdf> {
   const pdfjsLib = await import("pdfjs-dist");
 
   pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
@@ -20,8 +20,12 @@ export async function parsePdf(file: Blob): Promise<ParsedPdf> {
   const metadata = await pdf.getMetadata().catch(() => null);
   const info = metadata?.info as Record<string, string> | null;
 
-  const title = info?.Title || info?.Subject || "Untitled PDF";
-  const author = info?.Author || "Unknown";
+  // Fallback: use filename without extension if metadata title is missing
+  const fallbackTitle = fileName
+    ? fileName.replace(/\.[^/.]+$/, "")
+    : "Untitled PDF";
+  const title = info?.Title || info?.Subject || fallbackTitle;
+  const author = info?.Author || "-";
 
   const totalPages = pdf.numPages;
 

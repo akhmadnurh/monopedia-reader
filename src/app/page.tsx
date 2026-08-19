@@ -2,9 +2,9 @@
 
 import { useCallback, useRef, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
-import { BookOpen, Upload, Settings, AlertCircle, X } from "lucide-react";
-import { getAllBooks, saveBook, updateBookMetadata, deleteBookCompletely } from "@/lib/db";
-import { deleteFileFromDrive, uploadSyncData } from "@/lib/gdrive-sync";
+import { BookOpen, Upload, Settings, AlertCircle, X, CloudCheck, CloudUpload, CloudOff } from "lucide-react";
+import { getAllBooks, saveBook, updateBookMetadata, deleteBookCompletely, db } from "@/lib/db";
+import { deleteFileFromDrive, uploadSyncData, uploadBookFile } from "@/lib/gdrive-sync";
 import { isTokenValid } from "@/lib/google-auth";
 import { parseEpub, epubFileToBlob } from "@/lib/epub-parser";
 import type { BookItem } from "@/types/book";
@@ -103,7 +103,8 @@ export default function Home() {
       try {
         if (ext === "epub") {
           const blob = epubFileToBlob(file);
-          const parsed = await parseEpub(blob);
+          const parsed = await parseEpub(blob, file.name);
+          const isConnected = isTokenValid();
           const book: Omit<BookItem, "id"> = {
             title: parsed.title,
             author: parsed.author,
@@ -113,12 +114,22 @@ export default function Home() {
             addedAt: Date.now(),
             fileSize: file.size,
             fileBlob: blob,
+            syncStatus: isConnected ? "pending" : "local",
           };
-          await saveBook(book);
+          const id = await saveBook(book);
+          // Auto-upload to Drive in background
+          if (isConnected) {
+            uploadBookFile(book).then((driveFileId) => {
+              if (driveFileId) {
+                db.books.update(id, { driveFileId, syncStatus: "synced" });
+              }
+            }).catch(() => {});
+          }
         } else if (ext === "pdf") {
           const { parsePdf } = await import("@/lib/pdf-parser");
           const blob = new Blob([file], { type: "application/pdf" });
-          const parsed = await parsePdf(blob);
+          const parsed = await parsePdf(blob, file.name);
+          const isConnected = isTokenValid();
           const book: Omit<BookItem, "id"> = {
             title: parsed.title,
             author: parsed.author,
@@ -128,8 +139,16 @@ export default function Home() {
             addedAt: Date.now(),
             fileSize: file.size,
             fileBlob: blob,
+            syncStatus: isConnected ? "pending" : "local",
           };
-          await saveBook(book);
+          const id = await saveBook(book);
+          if (isConnected) {
+            uploadBookFile(book).then((driveFileId) => {
+              if (driveFileId) {
+                db.books.update(id, { driveFileId, syncStatus: "synced" });
+              }
+            }).catch(() => {});
+          }
         }
       } catch {
         showToast(`Gagal mengimpor ${file.name}. File mungkin rusak atau tidak valid.`);
@@ -273,6 +292,34 @@ export default function Home() {
 }
 
 /* ------------------------------------------------------------------ */
+/*  Sync Badge                                                           */
+/* ------------------------------------------------------------------ */
+function SyncBadge({ status }: { status: "synced" | "pending" | "local" }) {
+  if (status === "synced") {
+    return (
+      <span className="inline-flex items-center gap-0.5 text-[10px] text-emerald-500">
+        <CloudCheck className="h-3 w-3" />
+        Synced
+      </span>
+    );
+  }
+  if (status === "pending") {
+    return (
+      <span className="inline-flex items-center gap-0.5 text-[10px] text-blue-400">
+        <CloudUpload className="h-3 w-3 animate-pulse" />
+        Syncing
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-0.5 text-[10px] text-zinc-500">
+      <CloudOff className="h-3 w-3" />
+      Local
+    </span>
+  );
+}
+
+/* ------------------------------------------------------------------ */
 /*  Book Card                                                           */
 /* ------------------------------------------------------------------ */
 function BookCard({
@@ -321,9 +368,12 @@ function BookCard({
         <div className="flex flex-col gap-1 p-3">
           <p className="truncate text-sm font-medium">{book.title}</p>
           <p className="truncate text-xs text-zinc-400">{book.author}</p>
-          <span className="inline-block self-start rounded bg-zinc-800 px-1.5 py-0.5 text-[10px] font-medium uppercase text-zinc-500">
-            {book.fileType}
-          </span>
+          <div className="flex items-center gap-2">
+            <span className="inline-block rounded bg-zinc-800 px-1.5 py-0.5 text-[10px] font-medium uppercase text-zinc-500">
+              {book.fileType}
+            </span>
+            <SyncBadge status={book.syncStatus ?? "local"} />
+          </div>
         </div>
       </a>
 

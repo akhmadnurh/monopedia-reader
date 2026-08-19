@@ -12,7 +12,7 @@ export interface ChapterInfo {
   href: string;
 }
 
-export async function parseEpub(file: Blob): Promise<ParsedEpub> {
+export async function parseEpub(file: Blob, fileName?: string): Promise<ParsedEpub> {
   const book = ePub(await file.arrayBuffer());
 
   await book.ready;
@@ -22,8 +22,12 @@ export async function parseEpub(file: Blob): Promise<ParsedEpub> {
     book.loaded.navigation,
   ]);
 
-  const title = metadata.title || "Untitled";
-  const author = metadata.creator || "Unknown";
+  // Fallback: use filename without extension if metadata title is missing
+  const fallbackTitle = fileName
+    ? fileName.replace(/\.[^/.]+$/, "")
+    : "Untitled";
+  const title = metadata.title || fallbackTitle;
+  const author = metadata.creator || "-";
 
   let cover: Blob | null = null;
   try {
