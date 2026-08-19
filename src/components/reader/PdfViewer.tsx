@@ -31,8 +31,8 @@ export default function PdfViewer({
 
   const [currentPage, setCurrentPage] = useState(initialPage);
   const [totalPages, setTotalPages] = useState(totalPagesProp || 0);
+  const [scale, setScale] = useState(1);
   const [ready, setReady] = useState(false);
-  const [renderKey, setRenderKey] = useState(0);
 
   async function loadPdf(data: ArrayBuffer) {
     const pdfjsLib = await import("pdfjs-dist");
@@ -43,7 +43,17 @@ export default function PdfViewer({
     return pdfjsLib.getDocument({ data }).promise;
   }
 
-  // Load PDF + compute initial fit scale before rendering
+  // Compute fit-to-width scale from container width and page 1
+  async function computeFitScale(): Promise<number> {
+    if (!wrapperRef.current || !pdfRef.current) return 1;
+    const page = await pdfRef.current.getPage(1);
+    const viewport = page.getViewport({ scale: 1 });
+    const containerWidth = wrapperRef.current.clientWidth - 16;
+    if (containerWidth <= 0) return 1;
+    return containerWidth / viewport.width;
+  }
+
+  // Load PDF → compute initial fit scale → ready
   useEffect(() => {
     let cancelled = false;
 
@@ -55,10 +65,14 @@ export default function PdfViewer({
       pdfRef.current = pdf;
       setTotalPages(pdf.numPages);
 
-      // Wait a tick for wrapperRef to mount
+      // Wait for DOM mount
       await new Promise((r) => setTimeout(r, 0));
       if (cancelled) return;
 
+      const fitScale = await computeFitScale();
+      if (cancelled) return;
+
+      setScale(fitScale);
       setReady(true);
     }
 
@@ -66,17 +80,7 @@ export default function PdfViewer({
     return () => { cancelled = true; pdfRef.current = null; };
   }, [fileBlob]);
 
-  // Compute fit scale from container + PDF page
-  async function getFitScale(): Promise<number> {
-    if (!wrapperRef.current || !pdfRef.current) return 1;
-    const page = await pdfRef.current.getPage(1);
-    const viewport = page.getViewport({ scale: 1 });
-    const containerWidth = wrapperRef.current.clientWidth;
-    if (containerWidth <= 0) return 1;
-    return containerWidth / viewport.width;
-  }
-
-  // Render page whenever currentPage or renderKey changes
+  // Render page using current scale
   useEffect(() => {
     const canvas = canvasRef.current;
     const textLayerEl = textLayerRef.current;
@@ -93,8 +97,7 @@ export default function PdfViewer({
       if (cancelled) return;
 
       const dpr = window.devicePixelRatio || 1;
-      const fitScale = await getFitScale();
-      const viewport = page.getViewport({ scale: fitScale * dpr });
+      const viewport = page.getViewport({ scale: scale * dpr });
 
       const ctx = canvas!.getContext("2d");
       if (!ctx) return;
@@ -103,7 +106,6 @@ export default function PdfViewer({
       canvas!.height = Math.floor(viewport.height);
       canvas!.style.width = "100%";
       canvas!.style.height = "auto";
-      canvas!.style.maxWidth = "100%";
 
       const renderTask = page.render({ canvas: canvas!, canvasContext: ctx, viewport });
       renderTaskRef.current = renderTask;
@@ -136,7 +138,7 @@ export default function PdfViewer({
       cancelled = true;
       renderTaskRef.current?.cancel();
     };
-  }, [currentPage, ready, renderKey]);
+  }, [currentPage, scale, ready]);
 
   // Text selection → FloatingToolbar
   useEffect(() => {
@@ -169,18 +171,25 @@ export default function PdfViewer({
     document.dispatchEvent(new CustomEvent("monopedia:progress", { detail: progress }));
   }, [currentPage, totalPages, bookId, ready]);
 
+  // Navigation
   const goToNext = useCallback(() => setCurrentPage((p) => Math.min(p + 1, totalPages)), [totalPages]);
   const goToPrev = useCallback(() => setCurrentPage((p) => Math.max(p - 1, 1)), []);
-  const refit = useCallback(() => setRenderKey((k) => k + 1), []);
 
-  // Refit on resize
+  // Zoom controls — directly modify scale state
+  const zoomIn = useCallback(() => setScale((s) => s + 0.15), []);
+  const zoomOut = useCallback(() => setScale((s) => Math.max(0.3, s - 0.15)), []);
+  const fitWidth = useCallback(() => {
+    computeFitScale().then((s) => setScale(s));
+  }, []);
+
+  // Resize → refit
   useEffect(() => {
     function handleResize() {
-      refit();
+      fitWidth();
     }
     window.addEventListener("resize", handleResize);
     return () => window.removeEventListener("resize", handleResize);
-  }, [refit]);
+  }, [fitWidth]);
 
   // Listen for bottom bar events
   useEffect(() => {
@@ -191,9 +200,9 @@ export default function PdfViewer({
     }
     function handleZoom(e: Event) {
       const action = (e as CustomEvent).detail;
-      if (action === "in" || action === "out" || action === "fit") {
-        refit();
-      }
+      if (action === "in") zoomIn();
+      else if (action === "out") zoomOut();
+      else if (action === "fit") fitWidth();
     }
     document.addEventListener("monopedia:pdf-nav", handleNav);
     document.addEventListener("monopedia:pdf-zoom", handleZoom);
@@ -201,7 +210,7 @@ export default function PdfViewer({
       document.removeEventListener("monopedia:pdf-nav", handleNav);
       document.removeEventListener("monopedia:pdf-zoom", handleZoom);
     };
-  }, [goToNext, goToPrev, refit]);
+  }, [goToNext, goToPrev, zoomIn, zoomOut, fitWidth]);
 
   // Keyboard nav
   useEffect(() => {
@@ -236,7 +245,7 @@ export default function PdfViewer({
   return (
     <div
       ref={wrapperRef}
-      className="flex h-full w-full flex-col items-center overflow-auto"
+      className="flex h-full w-full flex-col overflow-auto"
       style={{ background: themeCfg.bg }}
     >
       <style>{`
@@ -256,9 +265,11 @@ export default function PdfViewer({
           <div className="h-8 w-8 animate-spin rounded-full border-2 border-zinc-300 border-t-zinc-600" />
         </div>
       ) : (
-        <div className="relative w-full" style={{ maxWidth: "100%", padding: `1em ${settings.margin}em` }}>
-          <canvas ref={canvasRef} className="block shadow-lg" />
-          <div ref={textLayerRef} className="pdf-text-layer" />
+        <div className="flex w-full justify-center px-2 py-4">
+          <div className="relative" style={{ maxWidth: "100%" }}>
+            <canvas ref={canvasRef} className="block shadow-lg" />
+            <div ref={textLayerRef} className="pdf-text-layer" />
+          </div>
         </div>
       )}
     </div>
