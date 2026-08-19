@@ -34,9 +34,18 @@ export default function PdfViewer({
   const [currentPage, setCurrentPage] = useState(initialPage);
   const [totalPages, setTotalPages] = useState(totalPagesProp || 0);
   const [scale, setScale] = useState(1);
+  const [fitScale, setFitScale] = useState(1);
   const [ready, setReady] = useState(false);
+  const isZoomed = scale > fitScale + 0.01;
 
   const isContinuous = settings.viewMode === "continuous";
+
+  // Compute wrapper classes based on zoom state
+  function getWrapperClasses() {
+    const base = "flex h-full w-full flex-col";
+    if (isContinuous) return `${base} overflow-y-auto overflow-x-hidden`;
+    return base;
+  }
 
   async function loadPdf(data: ArrayBuffer) {
     const pdfjsLib = await import("pdfjs-dist");
@@ -77,6 +86,7 @@ export default function PdfViewer({
       const fitScale = await computeFitScale();
       if (cancelled) return;
 
+      setFitScale(fitScale);
       setScale(fitScale);
       setReady(true);
     }
@@ -266,10 +276,24 @@ export default function PdfViewer({
   const goToPrev = useCallback(() => setCurrentPage((p) => Math.max(p - 1, 1)), []);
 
   // Zoom controls
-  const zoomIn = useCallback(() => setScale((s) => s + 0.15), []);
+  const zoomIn = useCallback(() => {
+    setScale((s) => {
+      const next = s + 0.15;
+      // Reset scroll to center when first zooming in from fit
+      requestAnimationFrame(() => {
+        const container = wrapperRef.current;
+        const canvas = canvasRef.current;
+        if (container && canvas && s <= fitScale + 0.01) {
+          container.scrollLeft = (canvas.clientWidth - container.clientWidth) / 2;
+          container.scrollTop = (canvas.clientHeight - container.clientHeight) / 2;
+        }
+      });
+      return next;
+    });
+  }, [fitScale]);
   const zoomOut = useCallback(() => setScale((s) => Math.max(0.3, s - 0.15)), []);
   const fitWidth = useCallback(() => {
-    computeFitScale().then((s) => setScale(s));
+    computeFitScale().then((s) => { setFitScale(s); setScale(s); });
   }, []);
 
   // Resize → refit (single mode only)
@@ -355,7 +379,7 @@ export default function PdfViewer({
   return (
     <div
       ref={wrapperRef}
-      className={`flex h-full w-full flex-col ${isContinuous ? "overflow-y-auto overflow-x-hidden" : "overflow-hidden"}`}
+      className={getWrapperClasses()}
       style={{ background: themeCfg.bg }}
     >
       <style>{`
@@ -403,9 +427,9 @@ export default function PdfViewer({
         </div>
       ) : (
         /* ── Single page mode ── */
-        <div className="flex w-full h-full justify-center overflow-x-hidden overflow-y-auto p-4">
-          <div className="relative my-auto">
-            <canvas ref={canvasRef} className="block shadow-lg" />
+        <div className={`w-full h-full p-4 ${isZoomed ? "overflow-auto touch-pan-x touch-pan-y" : "flex justify-center items-center overflow-hidden"}`}>
+          <div className={`relative ${isZoomed ? "m-auto" : "my-auto"}`}>
+            <canvas ref={canvasRef} className={`block shadow-lg ${isZoomed ? "max-w-none" : ""}`} />
             <div ref={textLayerRef} className="pdf-text-layer" />
           </div>
         </div>

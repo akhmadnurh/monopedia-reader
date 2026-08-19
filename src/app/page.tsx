@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
-import { BookOpen, Upload, Settings, AlertCircle, X, CloudCheck, CloudUpload, CloudOff, Loader2, Check, Search, ChevronDown } from "lucide-react";
+import { BookOpen, Upload, Settings, AlertCircle, X, CloudCheck, CloudUpload, CloudOff, Loader2, Check, Search, ChevronDown, Plus } from "lucide-react";
 import { saveBook, updateBookMetadata, deleteBookCompletely, db, getProgress } from "@/lib/db";
 import { deleteFileFromDrive, uploadSyncData, uploadBookFile } from "@/lib/gdrive-sync";
 import { isTokenValid, clearToken } from "@/lib/google-auth";
@@ -326,17 +326,26 @@ export default function Home() {
             <BookOpen className="h-5 w-5" />
             <span className="text-lg font-semibold">Monopedia</span>
           </div>
-          <a
-            href="/settings"
-            className="rounded-md p-2 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100 transition-colors"
-          >
-            <Settings className="h-5 w-5" />
-          </a>
+          <div className="flex items-center gap-1">
+            {/* Mobile: "+" button to import */}
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="md:hidden rounded-md p-2 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100 transition-colors"
+            >
+              <Plus className="h-5 w-5" />
+            </button>
+            <a
+              href="/settings"
+              className="rounded-md p-2 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100 transition-colors"
+            >
+              <Settings className="h-5 w-5" />
+            </a>
+          </div>
         </div>
       </header>
 
       <main className="flex flex-1 flex-col px-4 py-8">
-        {/* Dropzone / Import */}
+        {/* Dropzone / Import — hidden on mobile, shown on md+ */}
         <div
           onDragOver={(e) => {
             e.preventDefault();
@@ -346,7 +355,7 @@ export default function Home() {
           onDrop={handleDrop}
           onClick={() => fileInputRef.current?.click()}
           className={cn(
-            "mx-auto mb-8 flex w-full max-w-2xl cursor-pointer flex-col items-center gap-4 rounded-2xl border-2 border-dashed p-10 text-center transition-colors",
+            "mx-auto mb-8 hidden md:flex w-full max-w-2xl cursor-pointer flex-col items-center gap-4 rounded-2xl border-2 border-dashed p-10 text-center transition-colors",
             dragOver
               ? "border-zinc-400 bg-zinc-800/50"
               : "border-zinc-700 hover:border-zinc-500 hover:bg-zinc-800/30",
@@ -388,10 +397,34 @@ export default function Home() {
               />
             </div>
 
-            {/* Filter chips + Sort */}
-            <div className="flex items-center justify-between gap-3">
+            {/* ── Mobile: compact 2-column dropdowns ── */}
+            <div className="grid grid-cols-2 gap-2 md:hidden">
+              <select
+                value={filterStatus}
+                onChange={(e) => setFilterStatus(e.target.value as typeof filterStatus)}
+                className="rounded-lg border border-zinc-800 bg-zinc-900/60 px-3 py-2 text-xs text-zinc-300 outline-none focus:border-zinc-600 appearance-none cursor-pointer"
+              >
+                <option value="all">All Status</option>
+                <option value="reading">Reading</option>
+                <option value="unread">Unread</option>
+                <option value="finished">Finished</option>
+              </select>
+              <select
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value as typeof sortBy)}
+                className="rounded-lg border border-zinc-800 bg-zinc-900/60 px-3 py-2 text-xs text-zinc-300 outline-none focus:border-zinc-600 appearance-none cursor-pointer"
+              >
+                <option value="recent">Recently Added</option>
+                <option value="title-asc">Title A-Z</option>
+                <option value="title-desc">Title Z-A</option>
+                <option value="date-added">Date Added</option>
+              </select>
+            </div>
+
+            {/* ── Desktop: filter chips + sort dropdown ── */}
+            <div className="hidden md:flex items-center justify-between gap-3">
               {/* Filter chips */}
-              <div className="flex gap-1.5 overflow-x-auto">
+              <div className="flex gap-1.5">
                 {([
                   ["all", "All"],
                   ["reading", "Reading"],
