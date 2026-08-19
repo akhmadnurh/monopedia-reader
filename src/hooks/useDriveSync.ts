@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { isTokenValid, TokenExpiredError, clearToken } from "@/lib/google-auth";
-import { fullSync, uploadSyncData, uploadBookFile } from "@/lib/gdrive-sync";
+import { fullSync, uploadBookFile, downloadAllBooks } from "@/lib/gdrive-sync";
 import type { BookItem } from "@/types/book";
 
 export type SyncStatus = "idle" | "syncing" | "success" | "error";
@@ -14,7 +14,17 @@ interface UseDriveSyncOptions {
   onAuthExpired?: () => void;
 }
 
-const SYNC_TIMEOUT_MS = 120_000; // 2 minutes max per sync cycle
+const SYNC_TIMEOUT_MS = 120_000;
+
+function isAutoSyncEnabled(): boolean {
+  if (typeof window === "undefined") return true;
+  return localStorage.getItem("autoSyncProgress") !== "false";
+}
+
+function isAutoSyncNewBooksEnabled(): boolean {
+  if (typeof window === "undefined") return false;
+  return localStorage.getItem("autoSyncNewBooks") === "true";
+}
 
 export function useDriveSync(options: UseDriveSyncOptions = {}) {
   const {
@@ -32,14 +42,12 @@ export function useDriveSync(options: UseDriveSyncOptions = {}) {
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const doSync = useCallback(async () => {
-    // Guard: don't start if not connected or already syncing
     if (!isTokenValid() || syncingRef.current) return;
 
     syncingRef.current = true;
     setStatus("syncing");
     setError(null);
 
-    // Timeout wrapper — prevents infinite hang
     const timeoutPromise = new Promise<never>((_, reject) => {
       setTimeout(() => reject(new Error("Sync timed out")), SYNC_TIMEOUT_MS);
     });
@@ -51,7 +59,6 @@ export function useDriveSync(options: UseDriveSyncOptions = {}) {
       onSyncComplete?.(result);
       setTimeout(() => setStatus((s) => (s === "success" ? "idle" : s)), 3000);
     } catch (err) {
-      // Never let sync errors crash the UI — degrade gracefully to offline
       if (err instanceof TokenExpiredError || (err instanceof Error && err.name === "TokenExpiredError")) {
         clearToken();
         setError("Sesi Google habis. Silakan hubungkan kembali Google Drive.");
@@ -65,10 +72,11 @@ export function useDriveSync(options: UseDriveSyncOptions = {}) {
     }
   }, [onSyncComplete, onAuthExpired]);
 
-  /** Debounced upload — call this frequently; it batches to every `debounceMs` */
+  /** Debounced push — call this on progress changes; batches to every `debounceMs` */
   const scheduleUpload = useCallback(() => {
     try {
       if (!isTokenValid()) return;
+      if (!isAutoSyncEnabled()) return;
       if (debounceRef.current) clearTimeout(debounceRef.current);
       debounceRef.current = setTimeout(() => {
         doSync();
@@ -78,7 +86,7 @@ export function useDriveSync(options: UseDriveSyncOptions = {}) {
     }
   }, [debounceMs, doSync]);
 
-  /** Immediate upload (no debounce) — never throws */
+  /** Immediate sync (no debounce) — never throws */
   const uploadNow = useCallback(async () => {
     try {
       if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -96,15 +104,14 @@ export function useDriveSync(options: UseDriveSyncOptions = {}) {
     [],
   );
 
-  // Initial sync + periodic interval
+  // ── Periodic interval ──
   useEffect(() => {
     if (!isTokenValid()) return;
 
-    // Run initial sync immediately
     doSync();
 
     intervalRef.current = setInterval(() => {
-      if (isTokenValid()) doSync();
+      if (isTokenValid() && isAutoSyncEnabled()) doSync();
     }, autoSyncInterval);
 
     return () => {
@@ -112,7 +119,36 @@ export function useDriveSync(options: UseDriveSyncOptions = {}) {
     };
   }, [autoSyncInterval, doSync]);
 
-  // Cleanup debounce timer
+  // ── Cross-device pull on tab focus / visibility change ──
+  useEffect(() => {
+    function handlePull() {
+      if (!isTokenValid()) return;
+      if (!isAutoSyncEnabled()) return;
+      if (syncingRef.current) return;
+
+      // 1. Progress sync first (fast — metadata.json only)
+      doSync().then(() => {
+        // 2. Then sync book blobs in background if auto-sync new books is enabled
+        if (isAutoSyncNewBooksEnabled()) {
+          downloadAllBooks().catch(() => {});
+        }
+      });
+    }
+
+    function handleVisibility() {
+      if (document.visibilityState === "visible") handlePull();
+    }
+
+    window.addEventListener("focus", handlePull);
+    document.addEventListener("visibilitychange", handleVisibility);
+
+    return () => {
+      window.removeEventListener("focus", handlePull);
+      document.removeEventListener("visibilitychange", handleVisibility);
+    };
+  }, [doSync]);
+
+  // ── Cleanup debounce timer ──
   useEffect(() => {
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);

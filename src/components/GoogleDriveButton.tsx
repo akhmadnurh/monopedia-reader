@@ -3,14 +3,12 @@
 import { useEffect, useState } from "react";
 import { useGoogleLogin } from "@react-oauth/google";
 import { Cloud, LogOut, Loader2 } from "lucide-react";
-import {
-  isTokenValid,
-  storeToken,
-  clearToken,
-} from "@/lib/google-auth";
+import { isTokenValid, storeToken, clearToken } from "@/lib/google-auth";
 import { getOrCreateFolder, downloadSyncData } from "@/lib/gdrive-sync";
 
-export default function GoogleDriveButton({ onConnectionChange }: { onConnectionChange?: (connected: boolean) => void } = {}) {
+export default function GoogleDriveButton({
+  onConnectionChange,
+}: { onConnectionChange?: (connected: boolean) => void } = {}) {
   const [connected, setConnected] = useState(false);
   const [loading, setLoading] = useState(false);
 
@@ -54,6 +52,7 @@ export default function GoogleDriveButton({ onConnectionChange }: { onConnection
 
   return (
     <button
+      type="button"
       onClick={handleClick}
       disabled={loading}
       className={`inline-flex items-center gap-2 rounded-lg border px-4 py-2.5 text-sm font-medium transition-colors ${

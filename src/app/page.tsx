@@ -1,9 +1,9 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { BookOpen, Upload, Settings, AlertCircle, X, CloudCheck, CloudUpload, CloudOff, Loader2, Check } from "lucide-react";
-import { getAllBooks, saveBook, updateBookMetadata, deleteBookCompletely, db, getProgress } from "@/lib/db";
+import { saveBook, updateBookMetadata, deleteBookCompletely, db, getProgress } from "@/lib/db";
 import { deleteFileFromDrive, uploadSyncData, uploadBookFile } from "@/lib/gdrive-sync";
 import { isTokenValid, clearToken } from "@/lib/google-auth";
 import { parseEpub, epubFileToBlob } from "@/lib/epub-parser";
@@ -47,10 +47,34 @@ function Toast({
 /*  Home / Library Page                                                  */
 /* ------------------------------------------------------------------ */
 export default function Home() {
-  const books = useLiveQuery(() => getAllBooks(), []);
+  const books = useLiveQuery(() => db.books.toArray(), []);
   const [importing, setImporting] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isConnected, setIsConnected] = useState(false);
+
+  // Track connection status — react to same-tab and cross-tab changes
+  useEffect(() => {
+    setIsConnected(isTokenValid());
+    function handleStorage() {
+      setIsConnected(isTokenValid());
+    }
+    window.addEventListener("storage", handleStorage);
+    const id = setInterval(handleStorage, 2000);
+    return () => {
+      window.removeEventListener("storage", handleStorage);
+      clearInterval(id);
+    };
+  }, []);
+
+  // Filter: when disconnected, only show locally-imported books (hide synced/cloud books)
+  const displayBooks = useMemo(() => {
+    if (!books) return [];
+    if (!isConnected) {
+      return books.filter((book) => book.syncStatus === "local");
+    }
+    return books;
+  }, [books, isConnected]);
 
   // Modal state
   const [editBook, setEditBook] = useState<BookItem | null>(null);
@@ -65,6 +89,16 @@ export default function Home() {
     setToastMsg(msg);
     toastTimerRef.current = setTimeout(() => setToastMsg(null), 4000);
   }
+
+  // Listen for custom toast events (from BookActionMenu when disconnected)
+  useEffect(() => {
+    function handleToast(e: Event) {
+      const detail = (e as CustomEvent<string>).detail;
+      if (detail) showToast(detail);
+    }
+    window.addEventListener("monopedia:toast", handleToast);
+    return () => window.removeEventListener("monopedia:toast", handleToast);
+  }, []);
 
   /** Validate a single file — returns true if supported */
   function isFileSupported(file: File): boolean {
@@ -104,6 +138,7 @@ export default function Home() {
         if (ext === "epub") {
           const blob = epubFileToBlob(file);
           const parsed = await parseEpub(blob, file.name);
+          const autoSync = localStorage.getItem("autoSyncNewBooks") === "true";
           const isConnected = isTokenValid();
           const book: Omit<BookItem, "id"> = {
             title: parsed.title,
@@ -114,11 +149,10 @@ export default function Home() {
             addedAt: Date.now(),
             fileSize: file.size,
             fileBlob: blob,
-            syncStatus: isConnected ? "pending" : "local",
+            syncStatus: isConnected && autoSync ? "pending" : "local",
           };
           const id = await saveBook(book);
-          // Auto-upload to Drive in background
-          if (isConnected) {
+          if (isConnected && autoSync) {
             uploadBookFile(book).then((driveFileId) => {
               if (driveFileId) {
                 db.books.update(id, { driveFileId, syncStatus: "synced" });
@@ -129,6 +163,7 @@ export default function Home() {
           const { parsePdf } = await import("@/lib/pdf-parser");
           const blob = new Blob([file], { type: "application/pdf" });
           const parsed = await parsePdf(blob, file.name);
+          const autoSync = localStorage.getItem("autoSyncNewBooks") === "true";
           const isConnected = isTokenValid();
           const book: Omit<BookItem, "id"> = {
             title: parsed.title,
@@ -139,10 +174,10 @@ export default function Home() {
             addedAt: Date.now(),
             fileSize: file.size,
             fileBlob: blob,
-            syncStatus: isConnected ? "pending" : "local",
+            syncStatus: isConnected && autoSync ? "pending" : "local",
           };
           const id = await saveBook(book);
-          if (isConnected) {
+          if (isConnected && autoSync) {
             uploadBookFile(book).then((driveFileId) => {
               if (driveFileId) {
                 db.books.update(id, { driveFileId, syncStatus: "synced" });
@@ -263,9 +298,9 @@ export default function Home() {
         </div>
 
         {/* Book Grid */}
-        {books && books.length > 0 ? (
+        {displayBooks && displayBooks.length > 0 ? (
           <div className="mx-auto grid w-full max-w-5xl grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
-            {books.map((book) => (
+            {displayBooks.map((book) => (
               <BookCard
                 key={book.id}
                 book={book}
@@ -276,7 +311,7 @@ export default function Home() {
             ))}
           </div>
         ) : (
-          books !== undefined && (
+          displayBooks !== undefined && (
             <div className="flex flex-1 items-center justify-center">
               <p className="text-zinc-500">
                 No books yet. Import your first EPUB or PDF above.
@@ -404,10 +439,13 @@ function BookCard({
         <div className="flex flex-col gap-1 p-3">
           <p className="truncate text-sm font-medium">{book.title}</p>
           <p className="truncate text-xs text-zinc-400">{book.author}</p>
-          <div className="flex items-center gap-2">
-            <span className="inline-block rounded bg-zinc-800 px-1.5 py-0.5 text-[10px] font-medium uppercase text-zinc-500">
-              {book.fileType}
-            </span>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-1.5">
+              <span className="inline-block rounded bg-zinc-800 px-1.5 py-0.5 text-[10px] font-medium uppercase text-zinc-500">
+                {book.fileType}
+              </span>
+              <SyncBadge status={book.driveFileId ? "synced" : (book.syncStatus ?? "local")} />
+            </div>
             {isFinished ? (
               <span className="inline-flex items-center gap-0.5 text-[10px] text-emerald-500">
                 <Check className="h-3 w-3" />
@@ -417,9 +455,7 @@ function BookCard({
               <span className="text-[10px] text-zinc-500 tabular-nums">
                 {pct}%
               </span>
-            ) : (
-              <SyncBadge status={book.driveFileId ? "synced" : (book.syncStatus ?? "local")} />
-            )}
+            ) : null}
           </div>
         </div>
       </a>

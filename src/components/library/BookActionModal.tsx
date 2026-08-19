@@ -56,6 +56,12 @@ export function BookActionMenu({
     e.stopPropagation();
     setOpen(false);
     if (!onUpload) return;
+    if (!isTokenValid()) {
+      window.dispatchEvent(new CustomEvent("monopedia:toast", {
+        detail: "Connect to Google Drive in Settings first.",
+      }));
+      return;
+    }
     setUploading(true);
     onUpload();
   }
@@ -65,7 +71,7 @@ export function BookActionMenu({
   }
 
   const isLocal = !book.driveFileId && book.syncStatus !== "synced";
-  const showUpload = isLocal && isTokenValid();
+  const showUpload = isLocal;
 
   return (
     <div ref={ref} className="absolute top-2 right-2 z-10" onClick={stopProp} onMouseDown={stopProp}>
