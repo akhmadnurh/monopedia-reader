@@ -192,7 +192,7 @@ export default function EpubViewer({
       {!atStart && (
         <button
           onClick={goToPrev}
-          className="hidden md:flex fixed left-4 top-1/2 -translate-y-1/2 z-30 items-center justify-center rounded-full bg-background/40 p-3 text-zinc-400 backdrop-blur-md shadow-lg transition-all hover:bg-background/80 hover:text-zinc-100"
+          className="hidden lg:flex fixed left-4 top-1/2 -translate-y-1/2 z-30 items-center justify-center rounded-full bg-background/40 p-3 text-zinc-400 backdrop-blur-md shadow-lg transition-all hover:bg-background/80 hover:text-zinc-100"
           style={{ color: themeCfg.fg }}
           aria-label="Previous page"
         >
@@ -202,7 +202,7 @@ export default function EpubViewer({
       {!atEnd && (
         <button
           onClick={goToNext}
-          className="hidden md:flex fixed right-4 top-1/2 -translate-y-1/2 z-30 items-center justify-center rounded-full bg-background/40 p-3 text-zinc-400 backdrop-blur-md shadow-lg transition-all hover:bg-background/80 hover:text-zinc-100"
+          className="hidden lg:flex fixed right-4 top-1/2 -translate-y-1/2 z-30 items-center justify-center rounded-full bg-background/40 p-3 text-zinc-400 backdrop-blur-md shadow-lg transition-all hover:bg-background/80 hover:text-zinc-100"
           style={{ color: themeCfg.fg }}
           aria-label="Next page"
         >

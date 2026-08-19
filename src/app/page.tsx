@@ -335,7 +335,7 @@ export default function Home() {
             {/* Mobile: "+" button to import */}
             <button
               onClick={() => fileInputRef.current?.click()}
-              className="md:hidden rounded-md p-2 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100 transition-colors"
+              className="lg:hidden rounded-md p-2 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100 transition-colors"
             >
               <Plus className="h-5 w-5" />
             </button>
@@ -360,7 +360,7 @@ export default function Home() {
           onDrop={handleDrop}
           onClick={() => fileInputRef.current?.click()}
           className={cn(
-            "mx-auto mb-8 hidden md:flex w-full max-w-2xl cursor-pointer flex-col items-center gap-4 rounded-2xl border-2 border-dashed p-10 text-center transition-colors",
+            "mx-auto mb-8 hidden lg:flex w-full max-w-2xl cursor-pointer flex-col items-center gap-4 rounded-2xl border-2 border-dashed p-10 text-center transition-colors",
             dragOver
               ? "border-zinc-400 bg-zinc-800/50"
               : "border-zinc-700 hover:border-zinc-500 hover:bg-zinc-800/30",
@@ -403,7 +403,7 @@ export default function Home() {
             </div>
 
             {/* ── Mobile: compact 2-column dropdowns ── */}
-            <div className="grid grid-cols-2 gap-2 md:hidden">
+            <div className="grid grid-cols-2 gap-2 lg:hidden">
               <select
                 value={filterStatus}
                 onChange={(e) => setFilterStatus(e.target.value as typeof filterStatus)}
@@ -428,7 +428,7 @@ export default function Home() {
             </div>
 
             {/* ── Desktop: filter chips + sort dropdown ── */}
-            <div className="hidden md:flex items-center justify-between gap-3">
+            <div className="hidden lg:flex items-center justify-between gap-3">
               {/* Filter chips */}
               <div className="flex gap-1.5">
                 {([
