@@ -56,7 +56,7 @@ export default function Home() {
   // Control bar state
   const [searchQuery, setSearchQuery] = useState("");
   const [filterStatus, setFilterStatus] = useState<"all" | "reading" | "unread" | "finished">("all");
-  const [sortBy, setSortBy] = useState<"recent" | "title-asc" | "title-desc" | "date-added">("recent");
+  const [sortBy, setSortBy] = useState<"recently-read" | "recently-added" | "progress-desc" | "title-asc" | "title-desc">("recently-read");
   const [sortOpen, setSortOpen] = useState(false);
   const sortRef = useRef<HTMLDivElement>(null);
 
@@ -83,38 +83,25 @@ export default function Home() {
     };
   }, []);
 
-  // All-in-one filter + sort
+  // Filter (sort applied later after progressMap is available)
   const displayBooks = useMemo(() => {
     if (!books) return [];
 
-    // We need progress for each book to filter by reading status.
-    // Since useLiveQuery in BookCard already handles per-book progress,
-    // we do a best-effort filter here using the progress table.
-    // For sorting by "recent", we fall back to addedAt if no progress exists.
+    return books.filter((book) => {
+      // 1. Logout filter: only show local books when disconnected
+      if (!isConnected && book.syncStatus !== "local") return false;
 
-    return books
-      .filter((book) => {
-        // 1. Logout filter: only show local books when disconnected
-        if (!isConnected && book.syncStatus !== "local") return false;
+      // 2. Search filter
+      if (searchQuery) {
+        const q = searchQuery.toLowerCase();
+        const matchTitle = book.title?.toLowerCase().includes(q);
+        const matchAuthor = book.author?.toLowerCase().includes(q);
+        if (!matchTitle && !matchAuthor) return false;
+      }
 
-        // 2. Search filter
-        if (searchQuery) {
-          const q = searchQuery.toLowerCase();
-          const matchTitle = book.title?.toLowerCase().includes(q);
-          const matchAuthor = book.author?.toLowerCase().includes(q);
-          if (!matchTitle && !matchAuthor) return false;
-        }
-
-        return true;
-      })
-      .sort((a, b) => {
-        if (sortBy === "title-asc") return a.title.localeCompare(b.title);
-        if (sortBy === "title-desc") return b.title.localeCompare(a.title);
-        if (sortBy === "date-added") return (b.addedAt ?? 0) - (a.addedAt ?? 0);
-        // Default: recently added (we don't have lastReadTime on BookItem, so use addedAt)
-        return (b.addedAt ?? 0) - (a.addedAt ?? 0);
-      });
-  }, [books, isConnected, searchQuery, sortBy]);
+      return true;
+    });
+  }, [books, isConnected, searchQuery]);
 
   // For "reading status" filter, we need progress data. We'll do a second pass
   // using a separate hook in the grid section.
@@ -140,17 +127,35 @@ export default function Home() {
     return () => { cancelled = true; };
   }, [displayBooks]);
 
-  // Apply reading status filter using progressMap
+  // Apply reading status filter + sort using progressMap
   const filteredBooks = useMemo(() => {
-    if (filterStatus === "all") return displayBooks;
-    return displayBooks.filter((book) => {
-      const pct = progressMap.get(book.id!) ?? 0;
-      if (filterStatus === "reading") return pct > 0 && pct < 100;
-      if (filterStatus === "unread") return pct === 0;
-      if (filterStatus === "finished") return pct >= 100;
-      return true;
+    let result = displayBooks;
+
+    // Filter by reading status
+    if (filterStatus !== "all") {
+      result = result.filter((book) => {
+        const pct = progressMap.get(book.id!) ?? 0;
+        if (filterStatus === "reading") return pct > 0 && pct < 100;
+        if (filterStatus === "unread") return pct === 0;
+        if (filterStatus === "finished") return pct >= 100;
+        return true;
+      });
+    }
+
+    // Sort
+    return [...result].sort((a, b) => {
+      if (sortBy === "recently-read") {
+        const timeA = progressMap.get(a.id!) ? a.addedAt ?? 0 : 0;
+        const timeB = progressMap.get(b.id!) ? b.addedAt ?? 0 : 0;
+        return timeB - timeA;
+      }
+      if (sortBy === "recently-added") return (b.addedAt ?? 0) - (a.addedAt ?? 0);
+      if (sortBy === "progress-desc") return (progressMap.get(b.id!) ?? 0) - (progressMap.get(a.id!) ?? 0);
+      if (sortBy === "title-asc") return (a.title || "").localeCompare(b.title || "");
+      if (sortBy === "title-desc") return (b.title || "").localeCompare(a.title || "");
+      return 0;
     });
-  }, [displayBooks, filterStatus, progressMap]);
+  }, [displayBooks, filterStatus, progressMap, sortBy]);
 
   // Modal state
   const [editBook, setEditBook] = useState<BookItem | null>(null);
@@ -414,10 +419,11 @@ export default function Home() {
                 onChange={(e) => setSortBy(e.target.value as typeof sortBy)}
                 className="rounded-lg border border-zinc-800 bg-zinc-900/60 px-3 py-2 text-xs text-zinc-300 outline-none focus:border-zinc-600 appearance-none cursor-pointer"
               >
-                <option value="recent">Recently Added</option>
+                <option value="recently-read">Recently Read</option>
+                <option value="recently-added">Recently Added</option>
+                <option value="progress-desc">Highest Progress</option>
                 <option value="title-asc">Title A-Z</option>
                 <option value="title-desc">Title Z-A</option>
-                <option value="date-added">Date Added</option>
               </select>
             </div>
 
@@ -452,19 +458,21 @@ export default function Home() {
                   onClick={() => setSortOpen(!sortOpen)}
                   className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-700 bg-zinc-800/50 px-3 py-1.5 text-xs font-medium text-zinc-400 hover:border-zinc-600 hover:text-zinc-300 transition-colors"
                 >
-                  {sortBy === "recent" && "Recently Added"}
+                  {sortBy === "recently-read" && "Recently Read"}
+                  {sortBy === "recently-added" && "Recently Added"}
+                  {sortBy === "progress-desc" && "Highest Progress"}
                   {sortBy === "title-asc" && "Title A-Z"}
                   {sortBy === "title-desc" && "Title Z-A"}
-                  {sortBy === "date-added" && "Date Added"}
                   <ChevronDown className={cn("h-3 w-3 transition-transform", sortOpen && "rotate-180")} />
                 </button>
                 {sortOpen && (
                   <div className="absolute right-0 top-full z-50 mt-1 w-44 overflow-hidden rounded-lg border border-zinc-700 bg-zinc-900 shadow-xl">
                     {([
-                      ["recent", "Recently Added"],
+                      ["recently-read", "Recently Read"],
+                      ["recently-added", "Recently Added"],
+                      ["progress-desc", "Highest Progress"],
                       ["title-asc", "Title A-Z"],
                       ["title-desc", "Title Z-A"],
-                      ["date-added", "Date Added"],
                     ] as const).map(([value, label]) => (
                       <button
                         key={value}

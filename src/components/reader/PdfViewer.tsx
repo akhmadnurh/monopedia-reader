@@ -427,8 +427,8 @@ export default function PdfViewer({
         </div>
       ) : (
         /* ── Single page mode ── */
-        <div className={`w-full h-full p-4 ${isZoomed ? "overflow-auto touch-pan-x touch-pan-y" : "flex justify-center items-center overflow-hidden"}`}>
-          <div className={`relative ${isZoomed ? "m-auto" : "my-auto"}`}>
+        <div className={`w-full h-full px-2 pt-2 pb-20 ${isZoomed ? "overflow-auto touch-pan-x touch-pan-y" : "flex justify-center items-center overflow-hidden"}`}>
+          <div className={`relative ${isZoomed ? "m-auto" : ""}`}>
             <canvas ref={canvasRef} className={`block shadow-lg ${isZoomed ? "max-w-none" : ""}`} />
             <div ref={textLayerRef} className="pdf-text-layer" />
           </div>
