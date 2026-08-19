@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback } from "react";
 import { saveProgress } from "@/lib/db";
-import type { ReadingProgress, Highlight } from "@/types/book";
+import type { ReadingProgress } from "@/types/book";
 import type { ReaderSettings } from "@/lib/reader-settings";
 import { THEMES } from "@/lib/reader-settings";
 
@@ -12,7 +12,6 @@ interface PdfViewerProps {
   initialPage?: number;
   totalPages?: number;
   onProgress?: (progress: ReadingProgress) => void;
-  onHighlightCreated?: (h: Highlight) => void;
   settings: ReaderSettings;
 }
 
@@ -106,7 +105,7 @@ export default function PdfViewer({
     return () => { cancelled = true; renderTaskRef.current?.cancel(); };
   }, [currentPage, scale, loading]);
 
-  // Text selection listener for FloatingToolbar
+  // Text selection → dispatch custom event for FloatingToolbar
   useEffect(() => {
     function handleSelect() {
       const sel = window.getSelection();
@@ -134,6 +133,8 @@ export default function PdfViewer({
     };
     saveProgress(progress);
     onProgress?.(progress);
+    // Dispatch so PdfBottomBar can track page number
+    document.dispatchEvent(new CustomEvent("monopedia:progress", { detail: progress }));
   }, [currentPage, totalPages, bookId]);
 
   // Responsive scale
@@ -162,6 +163,27 @@ export default function PdfViewer({
     });
   }, [loading]);
 
+  // Listen for navigation events from floating bottom bar
+  useEffect(() => {
+    function handleNav(e: Event) {
+      const dir = (e as CustomEvent).detail;
+      if (dir === "prev") goToPrev();
+      else if (dir === "next") goToNext();
+    }
+    function handleZoom(e: Event) {
+      const action = (e as CustomEvent).detail;
+      if (action === "in") zoomIn();
+      else if (action === "out") zoomOut();
+      else if (action === "fit") fitWidth();
+    }
+    document.addEventListener("monopedia:pdf-nav", handleNav);
+    document.addEventListener("monopedia:pdf-zoom", handleZoom);
+    return () => {
+      document.removeEventListener("monopedia:pdf-nav", handleNav);
+      document.removeEventListener("monopedia:pdf-zoom", handleZoom);
+    };
+  }, [goToNext, goToPrev, zoomIn, zoomOut, fitWidth]);
+
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
       if (e.key === "ArrowRight" || e.key === "ArrowDown") goToNext();
@@ -189,15 +211,13 @@ export default function PdfViewer({
   }, [goToNext, goToPrev]);
 
   const themeCfg = THEMES[settings.theme];
-  const textColor = themeCfg.fg;
-  const bgColor = themeCfg.bg;
 
   return (
     <div className="flex h-full flex-col">
       <style>{`
         .pdf-text-layer {
           position: absolute; overflow: hidden; opacity: 0.25; line-height: 1;
-          color: ${textColor};
+          color: ${themeCfg.fg};
           font-family: ${settings.fontFamily === "serif" ? "Georgia, serif" : settings.fontFamily === "mono" ? "monospace" : "system-ui, sans-serif"};
           font-size: ${settings.fontSize}%;
         }
@@ -206,32 +226,22 @@ export default function PdfViewer({
         .pdf-text-layer span::selection { background: rgba(0, 100, 200, 0.3); color: transparent; }
       `}</style>
 
-      <div ref={containerRef} className={`flex-1 overflow-auto flex items-start justify-center`} style={{ background: bgColor }}>
+      {/* PDF canvas — scrollable, centered */}
+      <div
+        ref={containerRef}
+        className="flex-1 overflow-auto flex items-center justify-center p-2"
+        style={{ background: themeCfg.bg, minHeight: 0 }}
+      >
         {loading ? (
           <div className="flex items-center justify-center py-20">
             <div className="h-8 w-8 animate-spin rounded-full border-2 border-zinc-300 border-t-zinc-600" />
           </div>
         ) : (
           <div className="relative my-4" style={{ padding: `0 ${settings.margin}em` }}>
-            <canvas ref={canvasRef} className="block shadow-lg" />
+            <canvas ref={canvasRef} className="block shadow-lg mx-auto" />
             <div ref={textLayerRef} className="pdf-text-layer" />
           </div>
         )}
-      </div>
-
-      <div className="flex items-center justify-between border-t border-zinc-800 bg-background px-4 py-2">
-        <div className="flex items-center gap-2">
-          <button onClick={goToPrev} disabled={currentPage <= 1}
-            className="rounded-md px-3 py-1.5 text-sm text-zinc-400 hover:bg-zinc-800 disabled:opacity-30">Prev</button>
-          <span className="text-sm text-zinc-500">{currentPage} / {totalPages}</span>
-          <button onClick={goToNext} disabled={currentPage >= totalPages}
-            className="rounded-md px-3 py-1.5 text-sm text-zinc-400 hover:bg-zinc-800 disabled:opacity-30">Next</button>
-        </div>
-        <div className="flex items-center gap-1">
-          <button onClick={zoomOut} className="rounded-md px-2 py-1.5 text-sm text-zinc-400 hover:bg-zinc-800">−</button>
-          <button onClick={fitWidth} className="rounded-md px-2 py-1.5 text-xs text-zinc-400 hover:bg-zinc-800">Fit</button>
-          <button onClick={zoomIn} className="rounded-md px-2 py-1.5 text-sm text-zinc-400 hover:bg-zinc-800">+</button>
-        </div>
       </div>
     </div>
   );

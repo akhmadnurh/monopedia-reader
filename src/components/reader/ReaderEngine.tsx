@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import type { BookItem, Highlight, ReadingProgress } from "@/types/book";
+import type { BookItem, ReadingProgress } from "@/types/book";
 import type { ReaderSettings } from "@/lib/reader-settings";
 
 const EpubViewer = dynamic(() => import("./EpubViewer"), { ssr: false });
@@ -11,7 +11,6 @@ interface ReaderEngineProps {
   book: BookItem;
   progress?: ReadingProgress;
   onProgress?: (progress: ReadingProgress) => void;
-  onHighlightCreated?: (h: Highlight) => void;
   settings: ReaderSettings;
 }
 
@@ -19,7 +18,6 @@ export default function ReaderEngine({
   book,
   progress,
   onProgress,
-  onHighlightCreated,
   settings,
 }: ReaderEngineProps) {
   if (book.fileType === "pdf") {
@@ -34,7 +32,6 @@ export default function ReaderEngine({
         initialPage={initialPage}
         totalPages={book.totalChapters}
         onProgress={onProgress}
-        onHighlightCreated={onHighlightCreated}
         settings={settings}
       />
     );
@@ -46,7 +43,6 @@ export default function ReaderEngine({
       bookId={book.id!}
       initialCfi={progress?.cfi}
       onProgress={onProgress}
-      onHighlightCreated={onHighlightCreated}
       settings={settings}
     />
   );
