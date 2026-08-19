@@ -5,6 +5,7 @@ import { ChevronLeft, ChevronRight } from "lucide-react";
 import ePub, { type Book, type Rendition } from "epubjs";
 import type { NavItem } from "epubjs/types/navigation";
 import { saveProgress } from "@/lib/db";
+import { saveProgressLocalStorage } from "@/lib/reader-storage";
 import type { ReadingProgress } from "@/types/book";
 import type { ReaderSettings } from "@/lib/reader-settings";
 import { THEMES, FONT_FAMILIES } from "@/lib/reader-settings";
@@ -75,8 +76,12 @@ export default function EpubViewer({
         const chapterTitle = navItem?.label?.trim() || `Page ${displayed.page}`;
         setCurrentChapter(chapterTitle);
 
+        const pctNum = Math.round(pct * 100);
+        // 1. Instant write to LocalStorage (offline-first, synchronous)
+        saveProgressLocalStorage(bookId, displayed.page, pctNum);
+        // 2. Write to IndexedDB (richer store, async)
         const progress: ReadingProgress = {
-          bookId, cfi, percentage: Math.round(pct * 100),
+          bookId, cfi, percentage: pctNum,
           chapterTitle, lastReadAt: Date.now(),
           driveFileId,
         };

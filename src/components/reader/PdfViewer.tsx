@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { saveProgress } from "@/lib/db";
+import { saveProgressLocalStorage } from "@/lib/reader-storage";
 import type { ReadingProgress } from "@/types/book";
 import type { ReaderSettings } from "@/lib/reader-settings";
 import { THEMES } from "@/lib/reader-settings";
@@ -257,12 +258,16 @@ export default function PdfViewer({
     return () => document.removeEventListener("mouseup", handleSelect);
   }, [currentPage]);
 
-  // Auto-save progress
+  // Auto-save progress (LocalStorage instant + IndexedDB)
   useEffect(() => {
     if (!ready || totalPages === 0) return;
+    const pct = Math.round((currentPage / totalPages) * 100);
+    // 1. Instant write to LocalStorage (offline-first, synchronous)
+    saveProgressLocalStorage(bookId, currentPage, pct);
+    // 2. Write to IndexedDB (richer store, async)
     const progress: ReadingProgress = {
       bookId, cfi: `page-${currentPage}`,
-      percentage: Math.round((currentPage / totalPages) * 100),
+      percentage: pct,
       chapterTitle: `Page ${currentPage} of ${totalPages}`,
       lastReadAt: Date.now(),
       driveFileId,

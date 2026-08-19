@@ -4,7 +4,9 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { ArrowLeft, Settings, Highlighter, CloudCheck, CloudOff, Loader2, AlertCircle } from "lucide-react";
 import { getBookById, getProgress, saveHighlight } from "@/lib/db";
+import { getProgressLocalStorage } from "@/lib/reader-storage";
 import { useDriveSync, type SyncStatus } from "@/hooks/useDriveSync";
+import { useReaderSync } from "@/hooks/useReaderSync";
 import type { BookItem, ReadingProgress, Highlight } from "@/types/book";
 import {
   type ReaderSettings,
@@ -69,28 +71,50 @@ export default function ReadPage() {
   const [highlightRefreshKey, setHighlightRefreshKey] = useState(0);
   const [loading, setLoading] = useState(true);
 
-  const { status: syncStatus, scheduleUpload } = useDriveSync({
+  const { status: syncStatus } = useDriveSync({
     autoSyncInterval: 60_000,
-    debounceMs: 2_000,
+  });
+
+  const { scheduleSync, syncImmediate } = useReaderSync({
+    bookId,
+    debounceMs: 60_000,
   });
 
   const [showBar, setShowBar] = useState(true);
 
-  const progressDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const wakeLockRef = useRef<WakeLockSentinel | null>(null);
 
-  // Load book
+  // Load book — LocalStorage first (instant), then IndexedDB (richer data)
   useEffect(() => {
     let cancelled = false;
     async function load() {
       try {
-        const [bookData, progressData] = await Promise.all([
+        // 1. Read from LocalStorage first for instant page jump
+        const localProgress = getProgressLocalStorage(bookId);
+        let initialProgress: ReadingProgress | undefined;
+
+        if (localProgress) {
+          // Convert LocalStorage format to ReadingProgress
+          initialProgress = {
+            bookId,
+            cfi: `page-${localProgress.lastPage}`,
+            percentage: localProgress.progressPercentage,
+            chapterTitle: `Page ${localProgress.lastPage}`,
+            lastReadAt: localProgress.updatedAt,
+          };
+        }
+
+        // 2. Load full book data + IndexedDB progress (may have richer metadata)
+        const [bookData, dbProgress] = await Promise.all([
           getBookById(bookId), getProgress(bookId),
         ]);
         if (cancelled) return;
         if (!bookData) { router.replace("/"); return; }
+
         setBook(bookData);
-        setProgress(progressData);
+        // Prefer IndexedDB progress if it exists (has chapterTitle, driveFileId, etc.)
+        // but fall back to LocalStorage progress for instant mount
+        setProgress(dbProgress ?? initialProgress);
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -138,10 +162,9 @@ export default function ReadPage() {
   const handleProgress = useCallback(
     (p: ReadingProgress) => {
       setProgress(p);
-      if (progressDebounceRef.current) clearTimeout(progressDebounceRef.current);
-      progressDebounceRef.current = setTimeout(() => scheduleUpload(), 2_000);
+      scheduleSync();
     },
-    [scheduleUpload],
+    [scheduleSync],
   );
 
   const handleHighlight = useCallback(
@@ -149,10 +172,10 @@ export default function ReadPage() {
       try {
         await saveHighlight({ bookId, cfiRange, text, color, createdAt: Date.now() });
         setHighlightRefreshKey((k) => k + 1);
-        scheduleUpload();
+        scheduleSync();
       } catch { /* offline save failed silently */ }
     },
-    [bookId, scheduleUpload],
+    [bookId, scheduleSync],
   );
 
   const handleAddNote = useCallback(
@@ -162,10 +185,10 @@ export default function ReadPage() {
       try {
         await saveHighlight({ bookId, cfiRange, text, color: "#93C5FD", note, createdAt: Date.now() });
         setHighlightRefreshKey((k) => k + 1);
-        scheduleUpload();
+        scheduleSync();
       } catch { /* offline save failed silently */ }
     },
-    [bookId, scheduleUpload],
+    [bookId, scheduleSync],
   );
 
   const handleJumpTo = useCallback((_cfiRange: string) => {
@@ -225,7 +248,7 @@ export default function ReadPage() {
       >
         <div className="flex min-w-0 items-center gap-2">
           <button
-            onClick={() => router.push("/")}
+            onClick={() => { syncImmediate(); router.push("/"); }}
             className="flex-none rounded-md p-2 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100 transition-colors"
           >
             <ArrowLeft className="h-4 w-4" />
