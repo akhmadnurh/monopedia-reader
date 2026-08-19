@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
+import { createPortal } from "react-dom";
 import { MoreVertical, Pencil, Trash2, X, CloudUpload, Loader2 } from "lucide-react";
 import type { BookItem } from "@/types/book";
 import { isTokenValid } from "@/lib/google-auth";
@@ -31,10 +32,19 @@ export function BookActionMenu({
     return () => document.removeEventListener("mousedown", handleClick);
   }, [open]);
 
+  const [menuPos, setMenuPos] = useState<{ top: number; right: number } | null>(null);
+
   function handleMenuToggle(e: React.MouseEvent) {
     e.preventDefault();
     e.stopPropagation();
-    setOpen(!open);
+    if (open) {
+      setOpen(false);
+      setMenuPos(null);
+    } else {
+      const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+      setMenuPos({ top: rect.bottom + 4, right: window.innerWidth - rect.right });
+      setOpen(true);
+    }
   }
 
   function handleEdit(e: React.MouseEvent) {
@@ -82,9 +92,10 @@ export function BookActionMenu({
         <MoreVertical className="h-3.5 w-3.5" />
       </button>
 
-      {open && (
+      {open && menuPos && createPortal(
         <div
-          className="absolute right-0 top-full mt-1 w-44 overflow-hidden rounded-lg border border-zinc-700 bg-zinc-900 shadow-xl"
+          className="fixed z-[9999] w-44 overflow-hidden rounded-lg border border-zinc-700 bg-zinc-900 shadow-xl"
+          style={{ top: menuPos.top, right: menuPos.right, maxWidth: "calc(100vw - 32px)" }}
         >
           <button
             onClick={handleEdit}
@@ -110,7 +121,8 @@ export function BookActionMenu({
             <Trash2 className="h-3.5 w-3.5" />
             Delete Book
           </button>
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );

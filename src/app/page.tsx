@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
-import { BookOpen, Upload, Settings, AlertCircle, X, CloudCheck, CloudUpload, CloudOff, Loader2, Check } from "lucide-react";
+import { BookOpen, Upload, Settings, AlertCircle, X, CloudCheck, CloudUpload, CloudOff, Loader2, Check, Search, ChevronDown } from "lucide-react";
 import { saveBook, updateBookMetadata, deleteBookCompletely, db, getProgress } from "@/lib/db";
 import { deleteFileFromDrive, uploadSyncData, uploadBookFile } from "@/lib/gdrive-sync";
 import { isTokenValid, clearToken } from "@/lib/google-auth";
@@ -53,6 +53,22 @@ export default function Home() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isConnected, setIsConnected] = useState(false);
 
+  // Control bar state
+  const [searchQuery, setSearchQuery] = useState("");
+  const [filterStatus, setFilterStatus] = useState<"all" | "reading" | "unread" | "finished">("all");
+  const [sortBy, setSortBy] = useState<"recent" | "title-asc" | "title-desc" | "date-added">("recent");
+  const [sortOpen, setSortOpen] = useState(false);
+  const sortRef = useRef<HTMLDivElement>(null);
+
+  // Close sort dropdown on outside click
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (sortRef.current && !sortRef.current.contains(e.target as Node)) setSortOpen(false);
+    }
+    if (sortOpen) document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [sortOpen]);
+
   // Track connection status — react to same-tab and cross-tab changes
   useEffect(() => {
     setIsConnected(isTokenValid());
@@ -67,14 +83,74 @@ export default function Home() {
     };
   }, []);
 
-  // Filter: when disconnected, only show locally-imported books (hide synced/cloud books)
+  // All-in-one filter + sort
   const displayBooks = useMemo(() => {
     if (!books) return [];
-    if (!isConnected) {
-      return books.filter((book) => book.syncStatus === "local");
+
+    // We need progress for each book to filter by reading status.
+    // Since useLiveQuery in BookCard already handles per-book progress,
+    // we do a best-effort filter here using the progress table.
+    // For sorting by "recent", we fall back to addedAt if no progress exists.
+
+    return books
+      .filter((book) => {
+        // 1. Logout filter: only show local books when disconnected
+        if (!isConnected && book.syncStatus !== "local") return false;
+
+        // 2. Search filter
+        if (searchQuery) {
+          const q = searchQuery.toLowerCase();
+          const matchTitle = book.title?.toLowerCase().includes(q);
+          const matchAuthor = book.author?.toLowerCase().includes(q);
+          if (!matchTitle && !matchAuthor) return false;
+        }
+
+        return true;
+      })
+      .sort((a, b) => {
+        if (sortBy === "title-asc") return a.title.localeCompare(b.title);
+        if (sortBy === "title-desc") return b.title.localeCompare(a.title);
+        if (sortBy === "date-added") return (b.addedAt ?? 0) - (a.addedAt ?? 0);
+        // Default: recently added (we don't have lastReadTime on BookItem, so use addedAt)
+        return (b.addedAt ?? 0) - (a.addedAt ?? 0);
+      });
+  }, [books, isConnected, searchQuery, sortBy]);
+
+  // For "reading status" filter, we need progress data. We'll do a second pass
+  // using a separate hook in the grid section.
+  const [progressMap, setProgressMap] = useState<Map<number, number>>(new Map());
+
+  // Batch-fetch progress for all visible books
+  useEffect(() => {
+    if (!displayBooks.length) return;
+    let cancelled = false;
+    async function fetchProgresses() {
+      const entries = await Promise.all(
+        displayBooks.map(async (book) => {
+          if (!book.id) return null;
+          const p = await getProgress(book.id);
+          return p ? [book.id, p.percentage] as const : null;
+        }),
+      );
+      if (!cancelled) {
+        setProgressMap(new Map(entries.filter(Boolean) as [number, number][]));
+      }
     }
-    return books;
-  }, [books, isConnected]);
+    fetchProgresses();
+    return () => { cancelled = true; };
+  }, [displayBooks]);
+
+  // Apply reading status filter using progressMap
+  const filteredBooks = useMemo(() => {
+    if (filterStatus === "all") return displayBooks;
+    return displayBooks.filter((book) => {
+      const pct = progressMap.get(book.id!) ?? 0;
+      if (filterStatus === "reading") return pct > 0 && pct < 100;
+      if (filterStatus === "unread") return pct === 0;
+      if (filterStatus === "finished") return pct >= 100;
+      return true;
+    });
+  }, [displayBooks, filterStatus, progressMap]);
 
   // Modal state
   const [editBook, setEditBook] = useState<BookItem | null>(null);
@@ -297,10 +373,90 @@ export default function Home() {
           />
         </div>
 
+        {/* ── Control Bar: Search + Filter + Sort ── */}
+        {books && books.length > 0 && (
+          <div className="mx-auto mb-6 w-full max-w-5xl space-y-3">
+            {/* Search */}
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
+              <input
+                type="text"
+                placeholder="Search by title or author..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full rounded-lg border border-zinc-800 bg-zinc-900/60 py-2.5 pl-10 pr-4 text-sm text-zinc-200 placeholder-zinc-500 outline-none focus:border-zinc-600 focus:ring-1 focus:ring-zinc-600 transition-colors"
+              />
+            </div>
+
+            {/* Filter chips + Sort */}
+            <div className="flex items-center justify-between gap-3">
+              {/* Filter chips */}
+              <div className="flex gap-1.5 overflow-x-auto">
+                {([
+                  ["all", "All"],
+                  ["reading", "Reading"],
+                  ["unread", "Unread"],
+                  ["finished", "Finished"],
+                ] as const).map(([value, label]) => (
+                  <button
+                    key={value}
+                    onClick={() => setFilterStatus(value)}
+                    className={cn(
+                      "shrink-0 rounded-full px-3 py-1.5 text-xs font-medium transition-colors",
+                      filterStatus === value
+                        ? "bg-zinc-200 text-zinc-900"
+                        : "border border-zinc-700 bg-zinc-800/50 text-zinc-400 hover:border-zinc-600 hover:text-zinc-300",
+                    )}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+
+              {/* Sort dropdown */}
+              <div ref={sortRef} className="relative shrink-0">
+                <button
+                  onClick={() => setSortOpen(!sortOpen)}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-700 bg-zinc-800/50 px-3 py-1.5 text-xs font-medium text-zinc-400 hover:border-zinc-600 hover:text-zinc-300 transition-colors"
+                >
+                  {sortBy === "recent" && "Recently Added"}
+                  {sortBy === "title-asc" && "Title A-Z"}
+                  {sortBy === "title-desc" && "Title Z-A"}
+                  {sortBy === "date-added" && "Date Added"}
+                  <ChevronDown className={cn("h-3 w-3 transition-transform", sortOpen && "rotate-180")} />
+                </button>
+                {sortOpen && (
+                  <div className="absolute right-0 top-full z-50 mt-1 w-44 overflow-hidden rounded-lg border border-zinc-700 bg-zinc-900 shadow-xl">
+                    {([
+                      ["recent", "Recently Added"],
+                      ["title-asc", "Title A-Z"],
+                      ["title-desc", "Title Z-A"],
+                      ["date-added", "Date Added"],
+                    ] as const).map(([value, label]) => (
+                      <button
+                        key={value}
+                        onClick={() => { setSortBy(value); setSortOpen(false); }}
+                        className={cn(
+                          "flex w-full items-center px-3 py-2.5 text-sm transition-colors",
+                          sortBy === value
+                            ? "bg-zinc-800 text-zinc-100"
+                            : "text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200",
+                        )}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Book Grid */}
-        {displayBooks && displayBooks.length > 0 ? (
+        {filteredBooks && filteredBooks.length > 0 ? (
           <div className="mx-auto grid w-full max-w-5xl grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
-            {displayBooks.map((book) => (
+            {filteredBooks.map((book) => (
               <BookCard
                 key={book.id}
                 book={book}
@@ -311,10 +467,12 @@ export default function Home() {
             ))}
           </div>
         ) : (
-          displayBooks !== undefined && (
+          filteredBooks !== undefined && (
             <div className="flex flex-1 items-center justify-center">
               <p className="text-zinc-500">
-                No books yet. Import your first EPUB or PDF above.
+                {searchQuery || filterStatus !== "all"
+                  ? "No books match your search or filter."
+                  : "No books yet. Import your first EPUB or PDF above."}
               </p>
             </div>
           )
