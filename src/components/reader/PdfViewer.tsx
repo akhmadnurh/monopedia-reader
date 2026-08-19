@@ -34,6 +34,8 @@ export default function PdfViewer({
   const [scale, setScale] = useState(1);
   const [ready, setReady] = useState(false);
 
+  const isContinuous = settings.viewMode === "continuous";
+
   async function loadPdf(data: ArrayBuffer) {
     const pdfjsLib = await import("pdfjs-dist");
     pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
@@ -44,11 +46,12 @@ export default function PdfViewer({
   }
 
   // Compute fit-to-width scale from container width and page 1
+  // Subtract 2px safety margin to prevent any horizontal overflow
   async function computeFitScale(): Promise<number> {
     if (!wrapperRef.current || !pdfRef.current) return 1;
     const page = await pdfRef.current.getPage(1);
     const viewport = page.getViewport({ scale: 1 });
-    const containerWidth = wrapperRef.current.clientWidth - 16;
+    const containerWidth = wrapperRef.current.clientWidth - 2;
     if (containerWidth <= 0) return 1;
     return containerWidth / viewport.width;
   }
@@ -80,8 +83,10 @@ export default function PdfViewer({
     return () => { cancelled = true; pdfRef.current = null; };
   }, [fileBlob]);
 
-  // Render page using current scale
+  // Render single page (single mode)
   useEffect(() => {
+    if (isContinuous) return; // continuous mode uses its own render
+
     const canvas = canvasRef.current;
     const textLayerEl = textLayerRef.current;
     const wrapper = wrapperRef.current;
@@ -102,10 +107,8 @@ export default function PdfViewer({
       const ctx = canvas!.getContext("2d");
       if (!ctx) return;
 
-      // Set canvas internal resolution (HiDPI)
       canvas!.width = Math.floor(viewport.width);
       canvas!.height = Math.floor(viewport.height);
-      // Set CSS display size — reflects actual zoom level, enables scrolling when zoomed in
       const displayWidth = Math.floor(viewport.width / dpr);
       const displayHeight = Math.floor(viewport.height / dpr);
       canvas!.style.width = `${displayWidth}px`;
@@ -123,7 +126,6 @@ export default function PdfViewer({
       }
       if (cancelled) return;
 
-      // Text layer — match canvas CSS dimensions
       const container = textLayerEl!;
       container.innerHTML = "";
       container.style.width = `${displayWidth}px`;
@@ -142,7 +144,88 @@ export default function PdfViewer({
       cancelled = true;
       renderTaskRef.current?.cancel();
     };
-  }, [currentPage, scale, ready]);
+  }, [currentPage, scale, ready, isContinuous]);
+
+  // ── Continuous mode: render all pages into a vertical stack ──
+  const continuousCanvasRefs = useRef<Map<number, { canvas: HTMLCanvasElement; textLayer: HTMLDivElement }>>(new Map());
+
+  useEffect(() => {
+    if (!isContinuous || !ready || !pdfRef.current || totalPages === 0) return;
+    let cancelled = false;
+
+    async function renderAll() {
+      const pdf = pdfRef.current!;
+      const dpr = window.devicePixelRatio || 1;
+
+      for (let p = 1; p <= totalPages; p++) {
+        if (cancelled) return;
+
+        const entry = continuousCanvasRefs.current.get(p);
+        if (!entry) continue;
+
+        const page = await pdf.getPage(p);
+        if (cancelled) return;
+
+        const viewport = page.getViewport({ scale: scale * dpr });
+        const ctx = entry.canvas.getContext("2d");
+        if (!ctx) continue;
+
+        entry.canvas.width = Math.floor(viewport.width);
+        entry.canvas.height = Math.floor(viewport.height);
+        const displayWidth = Math.floor(viewport.width / dpr);
+        const displayHeight = Math.floor(viewport.height / dpr);
+        entry.canvas.style.width = `${displayWidth}px`;
+        entry.canvas.style.height = `${displayHeight}px`;
+
+        const renderTask = page.render({ canvas: entry.canvas, canvasContext: ctx, viewport });
+        try { await renderTask.promise; } catch { continue; }
+        if (cancelled) return;
+
+        entry.textLayer.innerHTML = "";
+        entry.textLayer.style.width = `${displayWidth}px`;
+        entry.textLayer.style.height = `${displayHeight}px`;
+
+        const textContent = await page.getTextContent();
+        if (cancelled) return;
+
+        const { TextLayer } = await import("pdfjs-dist");
+        const tl = new TextLayer({ textContentSource: textContent, container: entry.textLayer, viewport });
+        await tl.render();
+      }
+    }
+
+    renderAll();
+    return () => { cancelled = true; };
+  }, [isContinuous, ready, scale, totalPages]);
+
+  // Continuous page observer — track which page is visible
+  useEffect(() => {
+    if (!isContinuous || !ready) return;
+    const container = wrapperRef.current;
+    if (!container) return;
+
+    let ticking = false;
+    function onScroll() {
+      if (ticking) return;
+      ticking = true;
+      requestAnimationFrame(() => {
+        ticking = false;
+        let closest = 1;
+        let minDist = Infinity;
+        continuousCanvasRefs.current.forEach((_, pageNum) => {
+          const el = continuousCanvasRefs.current.get(pageNum)?.canvas;
+          if (!el) return;
+          const rect = el.getBoundingClientRect();
+          const dist = Math.abs(rect.top);
+          if (dist < minDist) { minDist = dist; closest = pageNum; }
+        });
+        if (closest !== currentPage) setCurrentPage(closest);
+      });
+    }
+
+    container.addEventListener("scroll", onScroll, { passive: true });
+    return () => container.removeEventListener("scroll", onScroll);
+  }, [isContinuous, ready, currentPage]);
 
   // Text selection → FloatingToolbar
   useEffect(() => {
@@ -179,21 +262,20 @@ export default function PdfViewer({
   const goToNext = useCallback(() => setCurrentPage((p) => Math.min(p + 1, totalPages)), [totalPages]);
   const goToPrev = useCallback(() => setCurrentPage((p) => Math.max(p - 1, 1)), []);
 
-  // Zoom controls — directly modify scale state
+  // Zoom controls
   const zoomIn = useCallback(() => setScale((s) => s + 0.15), []);
   const zoomOut = useCallback(() => setScale((s) => Math.max(0.3, s - 0.15)), []);
   const fitWidth = useCallback(() => {
     computeFitScale().then((s) => setScale(s));
   }, []);
 
-  // Resize → refit
+  // Resize → refit (single mode only)
   useEffect(() => {
-    function handleResize() {
-      fitWidth();
-    }
+    if (isContinuous) return;
+    function handleResize() { fitWidth(); }
     window.addEventListener("resize", handleResize);
     return () => window.removeEventListener("resize", handleResize);
-  }, [fitWidth]);
+  }, [fitWidth, isContinuous]);
 
   // Listen for bottom bar events
   useEffect(() => {
@@ -216,18 +298,20 @@ export default function PdfViewer({
     };
   }, [goToNext, goToPrev, zoomIn, zoomOut, fitWidth]);
 
-  // Keyboard nav
+  // Keyboard nav — single mode only
   useEffect(() => {
+    if (isContinuous) return;
     function handleKeyDown(e: KeyboardEvent) {
       if (e.key === "ArrowRight" || e.key === "ArrowDown") goToNext();
       if (e.key === "ArrowLeft" || e.key === "ArrowUp") goToPrev();
     }
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [goToNext, goToPrev]);
+  }, [goToNext, goToPrev, isContinuous]);
 
-  // Swipe nav
+  // Swipe nav — single mode only
   useEffect(() => {
+    if (isContinuous) return;
     const el = wrapperRef.current;
     if (!el) return;
     let startX = 0;
@@ -242,14 +326,33 @@ export default function PdfViewer({
       el.removeEventListener("touchstart", onTouchStart);
       el.removeEventListener("touchend", onTouchEnd);
     };
-  }, [goToNext, goToPrev]);
+  }, [goToNext, goToPrev, isContinuous]);
+
+  // Tap Zones — single mode only (25% left=prev, 25% right=next, 50% center=toggle bar)
+  useEffect(() => {
+    if (isContinuous) return;
+    const el = wrapperRef.current;
+    if (!el) return;
+
+    function handleTap(e: MouseEvent) {
+      const rect = el!.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const pct = x / rect.width;
+      if (pct < 0.25) goToPrev();
+      else if (pct > 0.75) goToNext();
+      else document.dispatchEvent(new CustomEvent("monopedia:toggle-bar"));
+    }
+
+    el.addEventListener("click", handleTap);
+    return () => el.removeEventListener("click", handleTap);
+  }, [goToNext, goToPrev, isContinuous]);
 
   const themeCfg = THEMES[settings.theme];
 
   return (
     <div
       ref={wrapperRef}
-      className="flex h-full w-full flex-col overflow-auto"
+      className={`flex h-full w-full flex-col ${isContinuous ? "overflow-y-auto overflow-x-hidden" : "overflow-hidden"}`}
       style={{ background: themeCfg.bg }}
     >
       <style>{`
@@ -268,9 +371,37 @@ export default function PdfViewer({
         <div className="flex items-center justify-center py-20">
           <div className="h-8 w-8 animate-spin rounded-full border-2 border-zinc-300 border-t-zinc-600" />
         </div>
+      ) : isContinuous ? (
+        /* ── Continuous scroll: all pages stacked vertically ── */
+        <div className="flex flex-col gap-4 w-full items-center py-4">
+          {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => (
+            <div key={p} className="relative" data-page={p}>
+              <canvas
+                ref={(el) => {
+                  if (el) {
+                    const prev = continuousCanvasRefs.current.get(p);
+                    continuousCanvasRefs.current.set(p, {
+                      canvas: el,
+                      textLayer: prev?.textLayer ?? el.parentElement!.querySelector<HTMLDivElement>(".pdf-text-layer")!,
+                    });
+                  }
+                }}
+                className="block shadow-lg"
+              />
+              <div className="pdf-text-layer" ref={(el) => {
+                if (el) {
+                  const prev = continuousCanvasRefs.current.get(p);
+                  if (prev) prev.textLayer = el;
+                  else continuousCanvasRefs.current.set(p, { canvas: el.parentElement!.querySelector("canvas")!, textLayer: el });
+                }
+              }} />
+            </div>
+          ))}
+        </div>
       ) : (
-        <div className="flex w-full justify-center overflow-auto max-w-full max-h-full p-4">
-          <div className="relative">
+        /* ── Single page mode ── */
+        <div className="flex w-full h-full justify-center overflow-x-hidden overflow-y-auto p-4">
+          <div className="relative my-auto">
             <canvas ref={canvasRef} className="block shadow-lg" />
             <div ref={textLayerRef} className="pdf-text-layer" />
           </div>

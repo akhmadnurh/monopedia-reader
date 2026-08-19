@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { isTokenValid, TokenExpiredError } from "@/lib/google-auth";
+import { isTokenValid, TokenExpiredError, clearToken } from "@/lib/google-auth";
 import { fullSync, uploadSyncData, uploadBookFile } from "@/lib/gdrive-sync";
 import type { BookItem } from "@/types/book";
 
@@ -13,6 +13,8 @@ interface UseDriveSyncOptions {
   onSyncComplete?: (result: { direction: string; remoteExportedAt: number }) => void;
   onAuthExpired?: () => void;
 }
+
+const SYNC_TIMEOUT_MS = 120_000; // 2 minutes max per sync cycle
 
 export function useDriveSync(options: UseDriveSyncOptions = {}) {
   const {
@@ -30,27 +32,34 @@ export function useDriveSync(options: UseDriveSyncOptions = {}) {
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const doSync = useCallback(async () => {
+    // Guard: don't start if not connected or already syncing
     if (!isTokenValid() || syncingRef.current) return;
 
     syncingRef.current = true;
     setStatus("syncing");
     setError(null);
 
+    // Timeout wrapper — prevents infinite hang
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      setTimeout(() => reject(new Error("Sync timed out")), SYNC_TIMEOUT_MS);
+    });
+
     try {
-      const result = await fullSync();
+      const result = await Promise.race([fullSync(), timeoutPromise]);
       setStatus("success");
       setLastSyncAt(Date.now());
       onSyncComplete?.(result);
       setTimeout(() => setStatus((s) => (s === "success" ? "idle" : s)), 3000);
     } catch (err) {
       // Never let sync errors crash the UI — degrade gracefully to offline
-      setStatus("idle");
-      if (err instanceof TokenExpiredError) {
-        setError("Token expired");
+      if (err instanceof TokenExpiredError || (err instanceof Error && err.name === "TokenExpiredError")) {
+        clearToken();
+        setError("Sesi Google habis. Silakan hubungkan kembali Google Drive.");
         onAuthExpired?.();
       } else {
         setError(err instanceof Error ? err.message : "Sync failed");
       }
+      setStatus("idle");
     } finally {
       syncingRef.current = false;
     }

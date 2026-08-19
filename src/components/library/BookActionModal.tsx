@@ -1,8 +1,9 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
-import { MoreVertical, Pencil, Trash2, X } from "lucide-react";
+import { MoreVertical, Pencil, Trash2, X, CloudUpload, Loader2 } from "lucide-react";
 import type { BookItem } from "@/types/book";
+import { isTokenValid } from "@/lib/google-auth";
 
 /* ------------------------------------------------------------------ */
 /*  Action Menu (three-dot button on each card)                         */
@@ -11,12 +12,15 @@ export function BookActionMenu({
   book,
   onEdit,
   onDelete,
+  onUpload,
 }: {
   book: BookItem;
   onEdit: () => void;
   onDelete: () => void;
+  onUpload?: () => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -47,9 +51,21 @@ export function BookActionMenu({
     onDelete();
   }
 
+  function handleUpload(e: React.MouseEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    setOpen(false);
+    if (!onUpload) return;
+    setUploading(true);
+    onUpload();
+  }
+
   function stopProp(e: React.MouseEvent) {
     e.stopPropagation();
   }
+
+  const isLocal = !book.driveFileId && book.syncStatus !== "synced";
+  const showUpload = isLocal && isTokenValid();
 
   return (
     <div ref={ref} className="absolute top-2 right-2 z-10" onClick={stopProp} onMouseDown={stopProp}>
@@ -62,7 +78,7 @@ export function BookActionMenu({
 
       {open && (
         <div
-          className="absolute right-0 top-full mt-1 w-40 overflow-hidden rounded-lg border border-zinc-700 bg-zinc-900 shadow-xl"
+          className="absolute right-0 top-full mt-1 w-44 overflow-hidden rounded-lg border border-zinc-700 bg-zinc-900 shadow-xl"
         >
           <button
             onClick={handleEdit}
@@ -71,6 +87,16 @@ export function BookActionMenu({
             <Pencil className="h-3.5 w-3.5" />
             Edit Info
           </button>
+          {showUpload && (
+            <button
+              onClick={handleUpload}
+              disabled={uploading}
+              className="flex w-full items-center gap-2 px-3 py-2.5 text-sm text-blue-400 hover:bg-zinc-800 transition-colors disabled:opacity-50"
+            >
+              {uploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CloudUpload className="h-3.5 w-3.5" />}
+              {uploading ? "Uploading..." : "Upload to Drive"}
+            </button>
+          )}
           <button
             onClick={handleDelete}
             className="flex w-full items-center gap-2 px-3 py-2.5 text-sm text-red-400 hover:bg-zinc-800 transition-colors"

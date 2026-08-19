@@ -49,7 +49,28 @@ export async function deleteBookCompletely(id: number): Promise<{ driveFileId?: 
 }
 
 export async function saveProgress(progress: ReadingProgress): Promise<void> {
-  await db.progress.put(progress);
+  const existing = await db.progress.get(progress.bookId);
+  // Max progress: only allow percentage to increase, never decrease
+  const maxPercentage = Math.max(existing?.percentage ?? 0, progress.percentage);
+  const finalProgress: ReadingProgress = {
+    ...progress,
+    percentage: maxPercentage,
+  };
+  // Auto-finished: if user reached last page, mark 100%
+  if (progress.cfi.startsWith("page-")) {
+    const parts = progress.cfi.replace("page-", "").split("/");
+    const pageNum = parseInt(parts[0], 10);
+    // We check chapterTitle for "Page X of Y" to detect last page
+    const match = progress.chapterTitle.match(/Page \d+ of (\d+)/);
+    if (match) {
+      const total = parseInt(match[1], 10);
+      if (pageNum >= total) {
+        finalProgress.percentage = 100;
+        finalProgress.chapterTitle = "Finished";
+      }
+    }
+  }
+  await db.progress.put(finalProgress);
 }
 
 export async function getProgress(bookId: number): Promise<ReadingProgress | undefined> {

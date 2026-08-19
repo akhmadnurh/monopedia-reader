@@ -23,12 +23,15 @@ export const FONT_FAMILIES: Record<FontFamily, { label: string; css: string }> =
   mono:  { label: "Monospace",   css: "'SF Mono', 'Fira Code', monospace" },
 };
 
+export type ViewMode = "single" | "continuous";
+
 export interface ReaderSettings {
   theme: ThemeName;
   fontFamily: FontFamily;
   fontSize: number;
   lineHeight: number;
   margin: number;
+  viewMode: ViewMode;
 }
 
 export const DEFAULT_READER_SETTINGS: ReaderSettings = {
@@ -37,6 +40,7 @@ export const DEFAULT_READER_SETTINGS: ReaderSettings = {
   fontSize: 100,
   lineHeight: 1.6,
   margin: 5,
+  viewMode: "single",
 };
 
 const STORAGE_KEY = "monopedia-reader-settings";

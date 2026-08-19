@@ -24,6 +24,8 @@ export function storeToken(accessToken: string, expiresIn: number): void {
 export function clearToken(): void {
   localStorage.removeItem("gdrive_access_token");
   localStorage.removeItem("gdrive_token_expiry");
+  // Also clear cached folder ID so it re-resolves on next login
+  localStorage.removeItem("gdrive_monopedia_folder_id");
 }
 
 export class TokenExpiredError extends Error {

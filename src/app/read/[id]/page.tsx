@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { ArrowLeft, Settings, Highlighter, Cloud, Check, Loader2, AlertCircle } from "lucide-react";
+import { ArrowLeft, Settings, Highlighter, CloudCheck, CloudOff, Loader2, AlertCircle } from "lucide-react";
 import { getBookById, getProgress, saveHighlight } from "@/lib/db";
 import { useDriveSync, type SyncStatus } from "@/hooks/useDriveSync";
 import type { BookItem, ReadingProgress, Highlight } from "@/types/book";
@@ -20,32 +20,35 @@ import FloatingToolbar from "@/components/reader/FloatingToolbar";
 import AnnotationsSidebar from "@/components/reader/AnnotationsSidebar";
 
 /* ------------------------------------------------------------------ */
-/*  Sync indicator                                                      */
+/*  Sync indicator — derived from book.driveFileId (single source)      */
 /* ------------------------------------------------------------------ */
-function SyncIndicator({ status }: { status: SyncStatus }) {
+function SyncIndicator({ bookDriveFileId, hookStatus }: { bookDriveFileId?: string; hookStatus: SyncStatus }) {
+  // Book-level sync status is the truth for the badge
+  const isSynced = !!bookDriveFileId;
+
+  // Show hook-level sync activity as a subtle animation
+  if (hookStatus === "syncing") {
+    return (
+      <span className="flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium">
+        <Loader2 className="h-3 w-3 animate-spin text-blue-400" />
+        <span className="text-blue-400">Syncing</span>
+      </span>
+    );
+  }
+
+  if (isSynced) {
+    return (
+      <span className="flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium">
+        <CloudCheck className="h-3 w-3 text-emerald-400" />
+        <span className="text-emerald-400">Synced</span>
+      </span>
+    );
+  }
+
   return (
     <span className="flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium">
-      {status === "syncing" && (
-        <>
-          <Loader2 className="h-3 w-3 animate-spin text-blue-400" />
-          <span className="text-blue-400">Syncing</span>
-        </>
-      )}
-      {status === "success" && (
-        <>
-          <Check className="h-3 w-3 text-emerald-400" />
-          <span className="text-emerald-400">Synced</span>
-        </>
-      )}
-      {status === "error" && (
-        <span className="inline-block h-2 w-2 rounded-full bg-red-400" title="Sync error — will retry" />
-      )}
-      {status === "idle" && (
-        <>
-          <Cloud className="h-3 w-3 text-zinc-500" />
-          <span className="text-zinc-500">Cloud</span>
-        </>
-      )}
+      <CloudOff className="h-3 w-3 text-zinc-500" />
+      <span className="text-zinc-500">Local</span>
     </span>
   );
 }
@@ -70,6 +73,8 @@ export default function ReadPage() {
     autoSyncInterval: 60_000,
     debounceMs: 2_000,
   });
+
+  const [showBar, setShowBar] = useState(true);
 
   const progressDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const wakeLockRef = useRef<WakeLockSentinel | null>(null);
@@ -119,6 +124,15 @@ export default function ReadPage() {
     }
     document.addEventListener("visibilitychange", handleVisibility);
     return () => document.removeEventListener("visibilitychange", handleVisibility);
+  }, []);
+
+  // Listen for toggle-bar from PdfViewer tap zones
+  useEffect(() => {
+    function handleToggleBar() {
+      setShowBar((v) => !v);
+    }
+    document.addEventListener("monopedia:toggle-bar", handleToggleBar);
+    return () => document.removeEventListener("monopedia:toggle-bar", handleToggleBar);
   }, []);
 
   const handleProgress = useCallback(
@@ -229,7 +243,7 @@ export default function ReadPage() {
         </div>
 
         <div className="flex flex-none items-center gap-1">
-          <SyncIndicator status={syncStatus} />
+          <SyncIndicator bookDriveFileId={book.driveFileId} hookStatus={syncStatus} />
           <button
             onClick={() => setShowAnnotations(!showAnnotations)}
             className={`rounded-md p-2 transition-colors ${showAnnotations ? "bg-zinc-700 text-zinc-100" : "text-zinc-400 hover:bg-zinc-800"}`}
@@ -338,6 +352,29 @@ export default function ReadPage() {
                 {settings.margin}em
               </span>
             </div>
+
+            {/* View Mode */}
+            <div className="flex items-center gap-3">
+              <span className="w-16 text-xs font-medium" style={{ color: themeCfg.fg }}>Mode</span>
+              <div className="flex gap-1">
+                <button
+                  onClick={() => updateSettings({ viewMode: "single" })}
+                  className={`rounded-md px-3 py-1.5 text-xs transition-colors ${
+                    settings.viewMode === "single" ? "bg-zinc-600 text-zinc-100" : "text-zinc-400 hover:bg-zinc-800"
+                  }`}
+                >
+                  Single Page
+                </button>
+                <button
+                  onClick={() => updateSettings({ viewMode: "continuous" })}
+                  className={`rounded-md px-3 py-1.5 text-xs transition-colors ${
+                    settings.viewMode === "continuous" ? "bg-zinc-600 text-zinc-100" : "text-zinc-400 hover:bg-zinc-800"
+                  }`}
+                >
+                  Continuous
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}
@@ -361,8 +398,8 @@ export default function ReadPage() {
         />
       </main>
 
-      {/* ── Floating Bottom Bar (PDF only) ── */}
-      {isPdf && <PdfBottomBar book={book} settings={settings} />}
+      {/* ── Floating Bottom Bar (PDF single mode only) ── */}
+      {isPdf && settings.viewMode === "single" && showBar && <PdfBottomBar book={book} settings={settings} />}
 
       {/* ── Floating Toolbar for text selection ── */}
       <FloatingToolbar onHighlight={handleHighlight} onAddNote={handleAddNote} />

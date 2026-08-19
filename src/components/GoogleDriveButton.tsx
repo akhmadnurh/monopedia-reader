@@ -8,7 +8,7 @@ import {
   storeToken,
   clearToken,
 } from "@/lib/google-auth";
-import { downloadSyncData } from "@/lib/gdrive-sync";
+import { getOrCreateFolder, downloadSyncData } from "@/lib/gdrive-sync";
 
 export default function GoogleDriveButton({ onConnectionChange }: { onConnectionChange?: (connected: boolean) => void } = {}) {
   const [connected, setConnected] = useState(false);
@@ -27,8 +27,14 @@ export default function GoogleDriveButton({ onConnectionChange }: { onConnection
       setConnected(true);
       onConnectionChange?.(true);
       setLoading(false);
-      // Auto-download existing sync data from Drive on login
-      downloadSyncData().catch(() => {});
+
+      // 1. Create "Monopedia Reader" folder immediately on login
+      getOrCreateFolder()
+        .then(() => {
+          // 2. Then pull existing sync data from Drive
+          return downloadSyncData();
+        })
+        .catch(() => {});
     },
     onError: () => {
       setLoading(false);

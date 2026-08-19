@@ -2,10 +2,10 @@
 
 import { useCallback, useRef, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
-import { BookOpen, Upload, Settings, AlertCircle, X, CloudCheck, CloudUpload, CloudOff } from "lucide-react";
-import { getAllBooks, saveBook, updateBookMetadata, deleteBookCompletely, db } from "@/lib/db";
+import { BookOpen, Upload, Settings, AlertCircle, X, CloudCheck, CloudUpload, CloudOff, Loader2, Check } from "lucide-react";
+import { getAllBooks, saveBook, updateBookMetadata, deleteBookCompletely, db, getProgress } from "@/lib/db";
 import { deleteFileFromDrive, uploadSyncData, uploadBookFile } from "@/lib/gdrive-sync";
-import { isTokenValid } from "@/lib/google-auth";
+import { isTokenValid, clearToken } from "@/lib/google-auth";
 import { parseEpub, epubFileToBlob } from "@/lib/epub-parser";
 import type { BookItem } from "@/types/book";
 import { cn } from "@/lib/utils";
@@ -187,6 +187,26 @@ export default function Home() {
     }
   }, [deleteBookTarget]);
 
+  const handleUploadBook = useCallback(async (book: BookItem) => {
+    if (!isTokenValid()) return;
+    if (!book.id) return;
+    try {
+      await db.books.update(book.id, { syncStatus: "pending" });
+      const driveFileId = await uploadBookFile(book);
+      if (driveFileId) {
+        await db.books.update(book.id, { driveFileId, syncStatus: "synced" });
+      } else {
+        // uploadBookFile returns null on failure (token expired, network error, etc.)
+        await db.books.update(book.id, { syncStatus: "local" });
+        if (!isTokenValid()) {
+          clearToken();
+        }
+      }
+    } catch {
+      if (book.id) await db.books.update(book.id, { syncStatus: "local" });
+    }
+  }, []);
+
   return (
     <div className="flex min-h-screen flex-col">
       <header className="sticky top-0 z-10 border-b border-zinc-800 bg-background/80 backdrop-blur-sm">
@@ -251,6 +271,7 @@ export default function Home() {
                 book={book}
                 onEdit={() => setEditBook(book)}
                 onDelete={() => setDeleteBookTarget(book)}
+                onUpload={() => handleUploadBook(book)}
               />
             ))}
           </div>
@@ -326,17 +347,23 @@ function BookCard({
   book,
   onEdit,
   onDelete,
+  onUpload,
 }: {
   book: BookItem;
   onEdit: () => void;
   onDelete: () => void;
+  onUpload: () => void;
 }) {
   const [coverUrl, setCoverUrl] = useState<string | null>(null);
+  const progress = useLiveQuery(() => getProgress(book.id!), [book.id]);
 
   if (book.cover && !coverUrl) {
     const url = URL.createObjectURL(book.cover);
     setCoverUrl(url);
   }
+
+  const pct = progress?.percentage ?? 0;
+  const isFinished = pct >= 100;
 
   return (
     <div className="group relative flex flex-col overflow-hidden rounded-xl bg-zinc-900 transition-colors hover:bg-zinc-800">
@@ -345,13 +372,12 @@ function BookCard({
         href={`/read/${book.id}`}
         className="flex flex-col"
         onClick={(e) => {
-          // Don't navigate if action menu was clicked
           if ((e.target as HTMLElement).closest("[data-action-menu]")) {
             e.preventDefault();
           }
         }}
       >
-        <div className="aspect-[2/3] w-full bg-zinc-800">
+        <div className="relative aspect-[2/3] w-full bg-zinc-800">
           {coverUrl ? (
             <img
               src={coverUrl}
@@ -363,6 +389,16 @@ function BookCard({
               <BookOpen className="h-10 w-10 text-zinc-600" />
             </div>
           )}
+
+          {/* Progress bar at bottom of cover */}
+          {pct > 0 && (
+            <div className="absolute bottom-0 left-0 right-0 h-1 bg-zinc-700/60">
+              <div
+                className="h-full bg-emerald-500 transition-all duration-300"
+                style={{ width: `${Math.min(pct, 100)}%` }}
+              />
+            </div>
+          )}
         </div>
 
         <div className="flex flex-col gap-1 p-3">
@@ -372,14 +408,25 @@ function BookCard({
             <span className="inline-block rounded bg-zinc-800 px-1.5 py-0.5 text-[10px] font-medium uppercase text-zinc-500">
               {book.fileType}
             </span>
-            <SyncBadge status={book.syncStatus ?? "local"} />
+            {isFinished ? (
+              <span className="inline-flex items-center gap-0.5 text-[10px] text-emerald-500">
+                <Check className="h-3 w-3" />
+                Finished
+              </span>
+            ) : pct > 0 ? (
+              <span className="text-[10px] text-zinc-500 tabular-nums">
+                {pct}%
+              </span>
+            ) : (
+              <SyncBadge status={book.driveFileId ? "synced" : (book.syncStatus ?? "local")} />
+            )}
           </div>
         </div>
       </a>
 
       {/* Action menu — absolutely positioned, stops propagation */}
       <div data-action-menu>
-        <BookActionMenu book={book} onEdit={onEdit} onDelete={onDelete} />
+        <BookActionMenu book={book} onEdit={onEdit} onDelete={onDelete} onUpload={onUpload} />
       </div>
     </div>
   );

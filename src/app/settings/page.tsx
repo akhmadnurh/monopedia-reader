@@ -1,13 +1,16 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { ArrowLeft } from "lucide-react";
+import { useState, useEffect, useCallback } from "react";
+import { ArrowLeft, Download, Loader2, CheckCircle, AlertCircle } from "lucide-react";
 import GoogleDriveButton from "@/components/GoogleDriveButton";
 import InstallPwaButton from "@/components/InstallPwaButton";
-import { isTokenValid } from "@/lib/google-auth";
+import { isTokenValid, clearToken } from "@/lib/google-auth";
+import { downloadAllBooks, type PullResult } from "@/lib/gdrive-sync";
 
 export default function SettingsPage() {
   const [connected, setConnected] = useState(false);
+  const [pulling, setPulling] = useState(false);
+  const [pullResult, setPullResult] = useState<PullResult | null>(null);
 
   // Re-check on mount and whenever GoogleDriveButton toggles
   useEffect(() => {
@@ -26,6 +29,30 @@ export default function SettingsPage() {
       window.removeEventListener("storage", handleStorage);
       clearInterval(id);
     };
+  }, []);
+
+  const handleSyncLibrary = useCallback(async () => {
+    if (!isTokenValid()) return;
+    setPulling(true);
+    setPullResult(null);
+    try {
+      const result = await downloadAllBooks();
+      setPullResult(result);
+      // If token expired during pull, update connection state
+      if (!isTokenValid()) {
+        clearToken();
+        setConnected(false);
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Unknown error";
+      setPullResult({ imported: 0, skipped: 0, errors: 1, errorDetails: [msg] });
+      if (!isTokenValid()) {
+        clearToken();
+        setConnected(false);
+      }
+    } finally {
+      setPulling(false);
+    }
   }, []);
 
   return (
@@ -68,6 +95,51 @@ export default function SettingsPage() {
                 Your files stay in your own Drive — we never store them on external servers.
               </p>
               <GoogleDriveButton onConnectionChange={setConnected} />
+
+              {connected && (
+                <div className="mt-4 space-y-3">
+                  <button
+                    onClick={handleSyncLibrary}
+                    disabled={pulling}
+                    className="inline-flex items-center gap-2 rounded-lg border border-zinc-700 bg-zinc-800 px-4 py-2.5 text-sm font-medium text-zinc-300 hover:bg-zinc-700 disabled:opacity-50 transition-colors"
+                  >
+                    {pulling ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Download className="h-4 w-4" />
+                    )}
+                    {pulling ? "Syncing Library..." : "Pull All Books from Drive"}
+                  </button>
+
+                  {pullResult && (
+                    <div className="space-y-2">
+                      <div className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm ${
+                        pullResult.errors > 0 ? "bg-red-900/20 text-red-400" : "bg-emerald-900/20 text-emerald-400"
+                      }`}>
+                        {pullResult.errors > 0 ? (
+                          <AlertCircle className="h-4 w-4 shrink-0" />
+                        ) : (
+                          <CheckCircle className="h-4 w-4 shrink-0" />
+                        )}
+                        <span>
+                          {pullResult.imported > 0 && `${pullResult.imported} imported`}
+                          {pullResult.imported > 0 && pullResult.skipped > 0 && ", "}
+                          {pullResult.skipped > 0 && `${pullResult.skipped} already exist`}
+                          {pullResult.imported === 0 && pullResult.skipped === 0 && pullResult.errors === 0 && "No new books found"}
+                          {pullResult.errors > 0 && `${pullResult.errors} failed`}
+                        </span>
+                      </div>
+                      {pullResult.errorDetails.length > 0 && (
+                        <div className="rounded-lg bg-red-900/10 px-3 py-2 text-xs text-red-400/80">
+                          {pullResult.errorDetails.map((detail, i) => (
+                            <p key={i}>{detail}</p>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </section>
 
