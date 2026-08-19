@@ -375,6 +375,28 @@ export default function ReadPage() {
                 </button>
               </div>
             </div>
+
+            {/* Navigation Mode */}
+            <div className="flex items-center gap-3">
+              <span className="w-16 text-xs font-medium" style={{ color: themeCfg.fg }}>Navigation</span>
+              <div className="flex gap-1">
+                {([
+                  ["swipe", "Swipe Only"],
+                  ["tap", "Tap Edges"],
+                  ["both", "Both"],
+                ] as const).map(([value, label]) => (
+                  <button
+                    key={value}
+                    onClick={() => updateSettings({ navigationMode: value })}
+                    className={`rounded-md px-3 py-1.5 text-xs transition-colors ${
+                      settings.navigationMode === value ? "bg-zinc-600 text-zinc-100" : "text-zinc-400 hover:bg-zinc-800"
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
         </div>
       )}

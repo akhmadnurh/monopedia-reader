@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useCallback, useState } from "react";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import ePub, { type Book, type Rendition } from "epubjs";
 import type { NavItem } from "epubjs/types/navigation";
 import { saveProgress } from "@/lib/db";
@@ -121,6 +122,8 @@ export default function EpubViewer({
       if (e.key === "ArrowRight") goToNext();
       if (e.key === "ArrowLeft") goToPrev();
     }
+
+    // Touch handlers — conditional on navigationMode
     function handleTouchStart(e: TouchEvent) {
       containerRef.current?.setAttribute("data-touch-x", String(e.touches[0].clientX));
     }
@@ -131,20 +134,82 @@ export default function EpubViewer({
     }
 
     window.addEventListener("keydown", handleKeyDown);
+
     const el = containerRef.current;
-    el?.addEventListener("touchstart", handleTouchStart, { passive: true });
-    el?.addEventListener("touchend", handleTouchEnd, { passive: true });
+    const useSwipe = settings.navigationMode === "swipe" || settings.navigationMode === "both";
+    const useTap = settings.navigationMode === "tap" || settings.navigationMode === "both";
+
+    if (useSwipe && el) {
+      el.addEventListener("touchstart", handleTouchStart, { passive: true });
+      el.addEventListener("touchend", handleTouchEnd, { passive: true });
+    }
+
+    // Tap edges — only in tap or both mode
+    function handleTap(e: MouseEvent) {
+      if (!useTap || !el) return;
+      if ((e.target as HTMLElement).closest("button")) return;
+      const rect = el.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const pct = x / rect.width;
+      if (pct < 0.25) goToPrev();
+      else if (pct > 0.75) goToNext();
+    }
+
+    if (useTap && el) {
+      el.addEventListener("click", handleTap);
+    }
+
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
-      el?.removeEventListener("touchstart", handleTouchStart);
-      el?.removeEventListener("touchend", handleTouchEnd);
+      if (el) {
+        el.removeEventListener("touchstart", handleTouchStart);
+        el.removeEventListener("touchend", handleTouchEnd);
+        el.removeEventListener("click", handleTap);
+      }
     };
-  }, [goToNext, goToPrev]);
+  }, [goToNext, goToPrev, settings.navigationMode]);
 
   const themeCfg = THEMES[settings.theme];
 
+  // Track if we're at first/last page via rendition
+  const [atStart, setAtStart] = useState(true);
+  const [atEnd, setAtEnd] = useState(false);
+
+  useEffect(() => {
+    const rendition = renditionRef.current;
+    if (!rendition) return;
+    function handleRelocated(location: { start: { percentage: number } }) {
+      setAtStart(location.start.percentage <= 0.01);
+      setAtEnd(location.start.percentage >= 0.99);
+    }
+    rendition.on("relocated", handleRelocated);
+    return () => { rendition.off("relocated", handleRelocated); };
+  }, []);
+
   return (
     <div className="relative flex h-full w-full">
+      {/* Desktop side arrows */}
+      {!atStart && (
+        <button
+          onClick={goToPrev}
+          className="hidden md:flex fixed left-4 top-1/2 -translate-y-1/2 z-30 items-center justify-center rounded-full bg-background/40 p-3 text-zinc-400 backdrop-blur-md shadow-lg transition-all hover:bg-background/80 hover:text-zinc-100"
+          style={{ color: themeCfg.fg }}
+          aria-label="Previous page"
+        >
+          <ChevronLeft className="h-5 w-5" />
+        </button>
+      )}
+      {!atEnd && (
+        <button
+          onClick={goToNext}
+          className="hidden md:flex fixed right-4 top-1/2 -translate-y-1/2 z-30 items-center justify-center rounded-full bg-background/40 p-3 text-zinc-400 backdrop-blur-md shadow-lg transition-all hover:bg-background/80 hover:text-zinc-100"
+          style={{ color: themeCfg.fg }}
+          aria-label="Next page"
+        >
+          <ChevronRight className="h-5 w-5" />
+        </button>
+      )}
+
       {/* TOC toggle (mobile) */}
       <button
         onClick={() => setTocOpen(!tocOpen)}

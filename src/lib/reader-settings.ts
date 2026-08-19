@@ -25,6 +25,8 @@ export const FONT_FAMILIES: Record<FontFamily, { label: string; css: string }> =
 
 export type ViewMode = "single" | "continuous";
 
+export type NavigationMode = "swipe" | "tap" | "both";
+
 export interface ReaderSettings {
   theme: ThemeName;
   fontFamily: FontFamily;
@@ -32,6 +34,7 @@ export interface ReaderSettings {
   lineHeight: number;
   margin: number;
   viewMode: ViewMode;
+  navigationMode: NavigationMode;
 }
 
 export const DEFAULT_READER_SETTINGS: ReaderSettings = {
@@ -41,6 +44,7 @@ export const DEFAULT_READER_SETTINGS: ReaderSettings = {
   lineHeight: 1.6,
   margin: 5,
   viewMode: "single",
+  navigationMode: "both",
 };
 
 const STORAGE_KEY = "monopedia-reader-settings";

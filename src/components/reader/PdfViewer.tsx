@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useCallback } from "react";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import { saveProgress } from "@/lib/db";
 import type { ReadingProgress } from "@/types/book";
 import type { ReaderSettings } from "@/lib/reader-settings";
@@ -336,9 +337,10 @@ export default function PdfViewer({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [goToNext, goToPrev, isContinuous]);
 
-  // Swipe nav — single mode only
+  // Swipe nav — single mode only, conditional on navigationMode
   useEffect(() => {
     if (isContinuous) return;
+    if (settings.navigationMode === "tap") return;
     const el = wrapperRef.current;
     if (!el) return;
     let startX = 0;
@@ -353,15 +355,18 @@ export default function PdfViewer({
       el.removeEventListener("touchstart", onTouchStart);
       el.removeEventListener("touchend", onTouchEnd);
     };
-  }, [goToNext, goToPrev, isContinuous]);
+  }, [goToNext, goToPrev, isContinuous, settings.navigationMode]);
 
-  // Tap Zones — single mode only (25% left=prev, 25% right=next, 50% center=toggle bar)
+  // Tap Zones — single mode only, conditional on navigationMode
   useEffect(() => {
     if (isContinuous) return;
+    if (settings.navigationMode === "swipe") return;
     const el = wrapperRef.current;
     if (!el) return;
 
     function handleTap(e: MouseEvent) {
+      // Ignore clicks on buttons (desktop arrow nav, etc.)
+      if ((e.target as HTMLElement).closest("button")) return;
       const rect = el!.getBoundingClientRect();
       const x = e.clientX - rect.left;
       const pct = x / rect.width;
@@ -372,7 +377,7 @@ export default function PdfViewer({
 
     el.addEventListener("click", handleTap);
     return () => el.removeEventListener("click", handleTap);
-  }, [goToNext, goToPrev, isContinuous]);
+  }, [goToNext, goToPrev, isContinuous, settings.navigationMode]);
 
   const themeCfg = THEMES[settings.theme];
 
@@ -433,6 +438,30 @@ export default function PdfViewer({
             <div ref={textLayerRef} className="pdf-text-layer" />
           </div>
         </div>
+      )}
+
+      {/* ── Desktop side arrow buttons ── */}
+      {!isContinuous && currentPage > 1 && (
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); document.dispatchEvent(new CustomEvent("monopedia:pdf-nav", { detail: "prev" })); }}
+          className="hidden md:flex fixed left-4 top-1/2 -translate-y-1/2 z-30 items-center justify-center rounded-full bg-background/40 p-3 text-zinc-400 backdrop-blur-md shadow-lg transition-all hover:bg-background/80 hover:text-zinc-100"
+          style={{ color: themeCfg.fg }}
+          aria-label="Previous page"
+        >
+          <ChevronLeft className="h-5 w-5" />
+        </button>
+      )}
+      {!isContinuous && currentPage < totalPages && (
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); document.dispatchEvent(new CustomEvent("monopedia:pdf-nav", { detail: "next" })); }}
+          className="hidden md:flex fixed right-4 top-1/2 -translate-y-1/2 z-30 items-center justify-center rounded-full bg-background/40 p-3 text-zinc-400 backdrop-blur-md shadow-lg transition-all hover:bg-background/80 hover:text-zinc-100"
+          style={{ color: themeCfg.fg }}
+          aria-label="Next page"
+        >
+          <ChevronRight className="h-5 w-5" />
+        </button>
       )}
     </div>
   );
