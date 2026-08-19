@@ -2,6 +2,7 @@
 
 import { ArrowLeft } from "lucide-react";
 import GoogleDriveButton from "@/components/GoogleDriveButton";
+import InstallPwaButton from "@/components/InstallPwaButton";
 
 export default function SettingsPage() {
   return (
@@ -20,6 +21,19 @@ export default function SettingsPage() {
 
       <main className="flex flex-1 flex-col px-4 py-8">
         <div className="mx-auto w-full max-w-2xl space-y-8">
+          {/* Install App Section */}
+          <section className="space-y-4">
+            <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-500">
+              Install
+            </h2>
+            <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-5">
+              <p className="mb-4 text-sm text-zinc-400">
+                Install Monopedia Reader on your device for quick access and offline use.
+              </p>
+              <InstallPwaButton />
+            </div>
+          </section>
+
           {/* Cloud Sync Section */}
           <section className="space-y-4">
             <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-500">
