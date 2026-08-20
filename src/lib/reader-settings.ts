@@ -25,7 +25,7 @@ export const FONT_FAMILIES: Record<FontFamily, { label: string; css: string }> =
 
 export type ViewMode = "single" | "continuous";
 
-export type NavigationMode = "swipe" | "tap" | "both";
+export type NavigationMode = "swipe" | "tap" | "both" | "none";
 
 export interface ReaderSettings {
   theme: ThemeName;

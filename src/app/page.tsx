@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
-import { BookOpen, Upload, Settings, AlertCircle, X, CloudCheck, CloudUpload, CloudOff, Loader2, Check, Search, ChevronDown, Plus } from "lucide-react";
+import { BookOpen, Upload, Settings, AlertCircle, X, CloudCheck, CloudUpload, CloudOff, Loader2, Check, Search, ChevronDown, Plus, RefreshCw } from "lucide-react";
 import { saveBook, updateBookMetadata, deleteBookCompletely, db, getProgress } from "@/lib/db";
 import { deleteFileFromDrive, uploadSyncData, uploadBookFile } from "@/lib/gdrive-sync";
 import { isTokenValid, clearToken } from "@/lib/google-auth";
@@ -14,6 +14,7 @@ import {
   EditBookModal,
   DeleteBookModal,
 } from "@/components/library/BookActionModal";
+import { useLibrarySync } from "@/hooks/useLibrarySync";
 
 const ALLOWED_EXTENSIONS = new Set(["epub", "pdf"]);
 const ALLOWED_MIMES = new Set([
@@ -52,6 +53,7 @@ export default function Home() {
   const [dragOver, setDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isConnected, setIsConnected] = useState(false);
+  const { status: librarySyncStatus } = useLibrarySync();
 
   // Control bar state
   const [searchQuery, setSearchQuery] = useState("");
@@ -105,27 +107,12 @@ export default function Home() {
 
   // For "reading status" filter, we need progress data. We'll do a second pass
   // using a separate hook in the grid section.
-  const [progressMap, setProgressMap] = useState<Map<number, number>>(new Map());
-
-  // Batch-fetch progress for all visible books
-  useEffect(() => {
-    if (!displayBooks.length) return;
-    let cancelled = false;
-    async function fetchProgresses() {
-      const entries = await Promise.all(
-        displayBooks.map(async (book) => {
-          if (!book.id) return null;
-          const p = await getProgress(book.id);
-          return p ? [book.id, p.percentage] as const : null;
-        }),
-      );
-      if (!cancelled) {
-        setProgressMap(new Map(entries.filter(Boolean) as [number, number][]));
-      }
-    }
-    fetchProgresses();
-    return () => { cancelled = true; };
-  }, [displayBooks]);
+  // Reactive progressMap — automatically updates when sync writes new progress to IndexedDB
+  const allProgress = useLiveQuery(() => db.progress.toArray(), []);
+  const progressMap = useMemo(() => {
+    if (!allProgress) return new Map<number, number>();
+    return new Map(allProgress.map((p) => [p.bookId, p.percentage]));
+  }, [allProgress]);
 
   // Apply reading status filter + sort using progressMap
   const filteredBooks = useMemo(() => {
@@ -330,6 +317,12 @@ export default function Home() {
           <div className="flex items-center gap-2">
             <BookOpen className="h-5 w-5" />
             <span className="text-lg font-semibold">Monopedia</span>
+            {librarySyncStatus === "pulling" && (
+              <span className="flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium">
+                <RefreshCw className="h-3 w-3 animate-spin text-blue-400" />
+                <span className="text-blue-400">Syncing</span>
+              </span>
+            )}
           </div>
           <div className="flex items-center gap-1">
             {/* Mobile: "+" button to import */}

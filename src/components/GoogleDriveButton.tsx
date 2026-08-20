@@ -3,7 +3,12 @@
 import { useEffect, useState } from "react";
 import { useGoogleLogin } from "@react-oauth/google";
 import { Cloud, LogOut, Loader2 } from "lucide-react";
-import { isTokenValid, storeToken, clearToken } from "@/lib/google-auth";
+import {
+  isTokenValid,
+  storeTokens,
+  clearToken,
+  exchangeCodeForTokens,
+} from "@/lib/google-auth";
 import { getOrCreateFolder, downloadSyncData } from "@/lib/gdrive-sync";
 
 export default function GoogleDriveButton({
@@ -18,21 +23,35 @@ export default function GoogleDriveButton({
     onConnectionChange?.(valid);
   }, []);
 
+  // Use auth-code flow so we get a refresh_token for long-lived sessions
   const login = useGoogleLogin({
+    flow: "auth-code",
     scope: "https://www.googleapis.com/auth/drive.file",
-    onSuccess: (tokenResponse) => {
-      storeToken(tokenResponse.access_token, tokenResponse.expires_in);
-      setConnected(true);
-      onConnectionChange?.(true);
-      setLoading(false);
+    onSuccess: async (tokenResponse) => {
+      try {
+        // Exchange the authorization code for access + refresh tokens
+        const result = await exchangeCodeForTokens(tokenResponse.code);
 
-      // 1. Create "Monopedia Reader" folder immediately on login
-      getOrCreateFolder()
-        .then(() => {
-          // 2. Then pull existing sync data from Drive
-          return downloadSyncData();
-        })
-        .catch(() => {});
+        if (!result) {
+          setLoading(false);
+          return;
+        }
+
+        storeTokens(result.accessToken, result.expiresIn, result.refreshToken);
+        setConnected(true);
+        onConnectionChange?.(true);
+        setLoading(false);
+
+        // 1. Create "Monopedia Reader" folder immediately on login
+        getOrCreateFolder()
+          .then(() => {
+            // 2. Then pull existing sync data from Drive
+            return downloadSyncData();
+          })
+          .catch(() => {});
+      } catch {
+        setLoading(false);
+      }
     },
     onError: () => {
       setLoading(false);

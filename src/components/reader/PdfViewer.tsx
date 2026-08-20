@@ -342,10 +342,23 @@ export default function PdfViewer({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [goToNext, goToPrev, isContinuous]);
 
+  // Listen for remote page updates (cross-device sync on focus)
+  useEffect(() => {
+    function handleRemotePage(e: Event) {
+      const detail = (e as CustomEvent).detail;
+      const remotePage = detail?.page;
+      if (typeof remotePage === "number" && remotePage > 0 && remotePage <= totalPages) {
+        setCurrentPage(remotePage);
+      }
+    }
+    document.addEventListener("monopedia:remote-page", handleRemotePage);
+    return () => document.removeEventListener("monopedia:remote-page", handleRemotePage);
+  }, [totalPages]);
+
   // Swipe nav — single mode only, conditional on navigationMode
   useEffect(() => {
     if (isContinuous) return;
-    if (settings.navigationMode === "tap") return;
+    if (settings.navigationMode === "tap" || settings.navigationMode === "none") return;
     const el = wrapperRef.current;
     if (!el) return;
     let startX = 0;
@@ -365,7 +378,7 @@ export default function PdfViewer({
   // Tap Zones — single mode only, conditional on navigationMode
   useEffect(() => {
     if (isContinuous) return;
-    if (settings.navigationMode === "swipe") return;
+    if (settings.navigationMode === "swipe" || settings.navigationMode === "none") return;
     const el = wrapperRef.current;
     if (!el) return;
 

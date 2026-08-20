@@ -4,7 +4,6 @@ import { useCallback, useEffect, useRef } from "react";
 import { isTokenValid, clearToken } from "@/lib/google-auth";
 import {
   getProgressLocalStorage,
-  getLocalUpdatedAt,
   type LocalProgress,
 } from "@/lib/reader-storage";
 
@@ -16,6 +15,8 @@ interface UseReaderSyncOptions {
   onSyncComplete?: (result: { direction: string; remoteExportedAt: number }) => void;
   /** Called when the OAuth token expires mid-session */
   onAuthExpired?: () => void;
+  /** Called when remote progress is newer than local — passes remote lastPage */
+  onRemoteProgress?: (remoteLastPage: number) => void;
 }
 
 /**
@@ -28,8 +29,9 @@ interface UseReaderSyncOptions {
  * Sync triggers:
  * 1. Debounced  — 60 s after the last `scheduleSync()` call (only if online).
  * 2. Immediate  — `syncImmediate()` cancels debounce and syncs right away.
- * 3. Visibility — `document.visibilityState === 'hidden'` (minimise / close).
- * 4. Unmount    — flushes pending debounce on cleanup.
+ * 3. Visibility hidden — push local data to Drive.
+ * 4. Visibility visible — pull remote data, notify if newer.
+ * 5. Unmount    — flushes pending debounce on cleanup.
  */
 export function useReaderSync(options: UseReaderSyncOptions) {
   const {
@@ -37,40 +39,34 @@ export function useReaderSync(options: UseReaderSyncOptions) {
     debounceMs = 60_000,
     onSyncComplete,
     onAuthExpired,
+    onRemoteProgress,
   } = options;
 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const syncingRef = useRef(false);
   const onSyncCompleteRef = useRef(onSyncComplete);
   const onAuthExpiredRef = useRef(onAuthExpired);
+  const onRemoteProgressRef = useRef(onRemoteProgress);
 
   // Keep refs stable so effects don't re-run on callback identity changes
   onSyncCompleteRef.current = onSyncComplete;
   onAuthExpiredRef.current = onAuthExpired;
+  onRemoteProgressRef.current = onRemoteProgress;
 
   // ── Core sync: read latest from LocalStorage → compare updatedAt → push if newer ──
   const syncMetadata = useCallback(async () => {
-    // Guard 1: must be authenticated
     if (!isTokenValid()) return;
-    // Guard 2: must be online
     if (typeof navigator !== "undefined" && !navigator.onLine) return;
-    // Guard 3: no concurrent syncs
     if (syncingRef.current) return;
 
     syncingRef.current = true;
     try {
-      // Always read the LATEST from LocalStorage before syncing (requirement 5)
       const local: LocalProgress | null = getProgressLocalStorage(bookId);
-
-      // Dynamically import to avoid SSR issues
       const { fullSync } = await import("@/lib/gdrive-sync");
       const { exportSyncData } = await import("@/lib/db");
 
-      // Run fullSync (pull remote + push if local is newer)
       const result = await fullSync();
 
-      // Conflict resolution: after fullSync, check if our local data is newer
-      // than what ended up on Drive. If so, push just this book's progress.
       if (local) {
         const syncData = await exportSyncData();
         const remoteProgress = syncData.progress.find(
@@ -79,7 +75,6 @@ export function useReaderSync(options: UseReaderSyncOptions) {
         const remoteUpdatedAt = remoteProgress?.lastReadAt ?? 0;
 
         if (local.updatedAt > remoteUpdatedAt) {
-          // Local is newer — upload via fullSync again (it will see local > remote)
           await fullSync();
         }
       }
@@ -88,15 +83,62 @@ export function useReaderSync(options: UseReaderSyncOptions) {
     } catch (err) {
       if (
         err instanceof Error &&
-        (err.name === "TokenExpiredError" ||
-          err.message.includes("401"))
+        (err.name === "TokenExpiredError" || err.message.includes("401"))
       ) {
         clearToken();
         onAuthExpiredRef.current?.();
       }
-      // Offline / network errors — data stays in LocalStorage, retry next debounce
     } finally {
       syncingRef.current = false;
+    }
+  }, [bookId]);
+
+  // ── Fetch remote progress for this book (pull on focus) ──
+  const fetchRemoteProgress = useCallback(async () => {
+    if (!isTokenValid()) return;
+    if (typeof navigator !== "undefined" && !navigator.onLine) return;
+    if (syncingRef.current) return;
+
+    syncingRef.current = true;
+    // Dispatch syncing event for visual feedback
+    document.dispatchEvent(new CustomEvent("monopedia:sync-pulling"));
+
+    try {
+      const { downloadSyncData } = await import("@/lib/gdrive-sync");
+      const result = await downloadSyncData();
+
+      if (result.updated) {
+        // After download, read the updated progress from IndexedDB
+        const { getProgress } = await import("@/lib/db");
+        const dbProgress = await getProgress(bookId);
+
+        if (dbProgress) {
+          const remotePage = dbProgress.cfi.startsWith("page-")
+            ? parseInt(dbProgress.cfi.replace("page-", ""), 10)
+            : 0;
+
+          if (remotePage > 0) {
+            const local = getProgressLocalStorage(bookId);
+            const localPage = local?.lastPage ?? 0;
+
+            if (remotePage > localPage) {
+              onRemoteProgressRef.current?.(remotePage);
+            }
+          }
+        }
+      }
+    } catch (err) {
+      if (
+        err instanceof Error &&
+        (err.name === "TokenExpiredError" || err.message.includes("401"))
+      ) {
+        clearToken();
+        onAuthExpiredRef.current?.();
+      }
+      // Offline / network errors — silently ignore
+    } finally {
+      syncingRef.current = false;
+      document.dispatchEvent(new CustomEvent("monopedia:sync-pulled"));
     }
   }, [bookId]);
 
@@ -126,18 +168,22 @@ export function useReaderSync(options: UseReaderSyncOptions) {
     }
   }, [syncMetadata]);
 
-  // ── 3. Trigger: visibilitychange → sync on hidden ──
+  // ── 3. Trigger: visibilitychange → push on hidden, pull on visible ──
   useEffect(() => {
     function handleVisibility() {
       if (document.visibilityState === "hidden") {
+        // Push: flush pending debounce immediately
         if (debounceRef.current) clearTimeout(debounceRef.current);
         debounceRef.current = null;
         syncMetadata();
+      } else if (document.visibilityState === "visible") {
+        // Pull: check if remote has newer progress
+        fetchRemoteProgress();
       }
     }
     document.addEventListener("visibilitychange", handleVisibility);
     return () => document.removeEventListener("visibilitychange", handleVisibility);
-  }, [syncMetadata]);
+  }, [syncMetadata, fetchRemoteProgress]);
 
   // ── 4. Trigger: unmount → flush pending debounce ──
   useEffect(() => {
@@ -145,7 +191,6 @@ export function useReaderSync(options: UseReaderSyncOptions) {
       if (debounceRef.current) {
         clearTimeout(debounceRef.current);
         debounceRef.current = null;
-        // Best-effort fire-and-forget on unmount
         syncMetadata();
       }
     };
@@ -158,5 +203,5 @@ export function useReaderSync(options: UseReaderSyncOptions) {
     };
   }, []);
 
-  return { scheduleSync, syncImmediate };
+  return { scheduleSync, syncImmediate, fetchRemoteProgress };
 }
