@@ -144,7 +144,30 @@ export async function exportSyncData(): Promise<SyncPayload> {
 
 export async function importSyncData(payload: SyncPayload): Promise<void> {
   await db.transaction("rw", [db.books, db.progress, db.highlights], async () => {
-    // Merge book metadata — update title/author if we already have the book locally
+    // ── Step 0: Link orphan books (no driveFileId) to remote by title ──
+    // When a book was imported locally on device A and synced to Drive,
+    // device B may have the same book imported locally without a driveFileId.
+    // Match by exact title to link them so progress can be synced.
+    if (payload.books?.length) {
+      const allLocalBooks = await db.books.toArray();
+      const orphanByTitle = new Map<string, BookItem>();
+      for (const b of allLocalBooks) {
+        if (!b.driveFileId && b.title) orphanByTitle.set(b.title, b);
+      }
+
+      for (const meta of payload.books) {
+        const orphan = orphanByTitle.get(meta.title);
+        if (orphan?.id) {
+          await db.books.update(orphan.id, {
+            driveFileId: meta.driveFileId,
+            syncStatus: "synced",
+          } as Partial<BookItem>);
+          orphanByTitle.delete(meta.title);
+        }
+      }
+    }
+
+    // ── Step 1: Update book metadata (title/author) if already linked ──
     if (payload.books) {
       for (const meta of payload.books) {
         const existing = await db.books
@@ -160,8 +183,7 @@ export async function importSyncData(payload: SyncPayload): Promise<void> {
       }
     }
 
-    // Merge progress — match by driveFileId (cross-device ID), not bookId (local auto-increment)
-    // Build a lookup: driveFileId → local bookId
+    // ── Step 2: Import progress — match by driveFileId (cross-device ID) ──
     const allLocalBooks = await db.books.toArray();
     const bookByDriveId = new Map<string, number>();
     for (const b of allLocalBooks) {
@@ -169,14 +191,11 @@ export async function importSyncData(payload: SyncPayload): Promise<void> {
     }
 
     for (const p of payload.progress) {
-      // Resolve local bookId from driveFileId
       const localBookId = p.driveFileId ? bookByDriveId.get(p.driveFileId) : undefined;
-      if (localBookId === undefined) continue; // Book not yet pulled to this device
+      if (localBookId === undefined) continue;
 
       const existing = await db.progress.get(localBookId);
-      // Accept if: no existing entry, or remote is newer
-      const shouldUpdate = !existing
-        || p.lastReadAt > existing.lastReadAt;
+      const shouldUpdate = !existing || p.lastReadAt > existing.lastReadAt;
       if (shouldUpdate) {
         await db.progress.put({
           ...p,
@@ -185,6 +204,8 @@ export async function importSyncData(payload: SyncPayload): Promise<void> {
         });
       }
     }
+
+    // ── Step 3: Import highlights (deduplicate by id) ──
     for (const h of payload.highlights) {
       const exists = await db.highlights.get(h.id);
       if (!exists) {

@@ -58,7 +58,15 @@ export function useLibrarySync() {
     }
   }, []);
 
-  // Listen for focus / visibility change → pull from Drive
+  // ── Trigger: mount → pull remote progress immediately ──
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      fetchRemoteProgress();
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [fetchRemoteProgress]);
+
+  // ── Trigger: focus / visibility change → pull from Drive ──
   useEffect(() => {
     function handlePull() {
       if (!isTokenValid()) return;
