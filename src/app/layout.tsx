@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { Providers } from "@/components/providers";
 import { SerwistProvider } from "@/components/serwist-provider";
+import OAuthCallbackHandler from "@/components/OAuthCallbackHandler";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -66,7 +67,10 @@ export default function RootLayout({
     >
       <body className="min-h-full flex flex-col bg-background text-foreground">
         <SerwistProvider>
-          <Providers>{children}</Providers>
+          <Providers>
+            {children}
+            <OAuthCallbackHandler />
+          </Providers>
         </SerwistProvider>
       </body>
     </html>

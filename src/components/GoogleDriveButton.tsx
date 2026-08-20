@@ -1,15 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useGoogleLogin } from "@react-oauth/google";
 import { Cloud, LogOut, Loader2 } from "lucide-react";
-import {
-  isTokenValid,
-  storeTokens,
-  clearToken,
-  exchangeCodeForTokens,
-} from "@/lib/google-auth";
-import { getOrCreateFolder, downloadSyncData } from "@/lib/gdrive-sync";
+import { isTokenValid, clearToken, getGoogleOAuthUrl } from "@/lib/google-auth";
 
 export default function GoogleDriveButton({
   onConnectionChange,
@@ -21,42 +14,17 @@ export default function GoogleDriveButton({
     const valid = isTokenValid();
     setConnected(valid);
     onConnectionChange?.(valid);
-  }, []);
 
-  // Use auth-code flow so we get a refresh_token for long-lived sessions
-  const login = useGoogleLogin({
-    flow: "auth-code",
-    scope: "https://www.googleapis.com/auth/drive.file",
-    onSuccess: async (tokenResponse) => {
-      try {
-        // Exchange the authorization code for access + refresh tokens
-        const result = await exchangeCodeForTokens(tokenResponse.code);
-
-        if (!result) {
-          setLoading(false);
-          return;
-        }
-
-        storeTokens(result.accessToken, result.expiresIn, result.refreshToken);
-        setConnected(true);
-        onConnectionChange?.(true);
-        setLoading(false);
-
-        // 1. Create "Monopedia Reader" folder immediately on login
-        getOrCreateFolder()
-          .then(() => {
-            // 2. Then pull existing sync data from Drive
-            return downloadSyncData();
-          })
-          .catch(() => {});
-      } catch {
-        setLoading(false);
+    const interval = setInterval(() => {
+      const now = isTokenValid();
+      if (now !== connected) {
+        setConnected(now);
+        onConnectionChange?.(now);
       }
-    },
-    onError: () => {
-      setLoading(false);
-    },
-  });
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, []);
 
   function handleClick() {
     if (connected) {
@@ -65,7 +33,12 @@ export default function GoogleDriveButton({
       onConnectionChange?.(false);
     } else {
       setLoading(true);
-      login();
+      const url = getGoogleOAuthUrl();
+      if (url) {
+        window.location.href = url;
+      } else {
+        setLoading(false);
+      }
     }
   }
 

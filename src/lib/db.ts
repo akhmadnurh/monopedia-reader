@@ -158,16 +158,28 @@ export async function importSyncData(payload: SyncPayload): Promise<void> {
       }
     }
 
+    // Merge progress — match by driveFileId (cross-device ID), not bookId (local auto-increment)
+    // Build a lookup: driveFileId → local bookId
+    const allLocalBooks = await db.books.toArray();
+    const bookByDriveId = new Map<string, number>();
+    for (const b of allLocalBooks) {
+      if (b.driveFileId && b.id) bookByDriveId.set(b.driveFileId, b.id);
+    }
+
     for (const p of payload.progress) {
-      const existing = await db.progress.get(p.bookId);
-      // Accept if: no existing entry, or remote is newer, or remote has driveFileId we don't
+      // Resolve local bookId from driveFileId
+      const localBookId = p.driveFileId ? bookByDriveId.get(p.driveFileId) : undefined;
+      if (localBookId === undefined) continue; // Book not yet pulled to this device
+
+      const existing = await db.progress.get(localBookId);
+      // Accept if: no existing entry, or remote is newer
       const shouldUpdate = !existing
-        || p.lastReadAt > existing.lastReadAt
-        || (p.driveFileId && !existing.driveFileId);
+        || p.lastReadAt > existing.lastReadAt;
       if (shouldUpdate) {
         await db.progress.put({
           ...p,
-          driveFileId: p.driveFileId ?? existing?.driveFileId,
+          bookId: localBookId,
+          driveFileId: p.driveFileId,
         });
       }
     }

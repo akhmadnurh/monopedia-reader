@@ -5,12 +5,19 @@ import { isTokenValid, clearToken } from "@/lib/google-auth";
 
 export type LibrarySyncStatus = "idle" | "pulling" | "synced";
 
+function isAutoSyncNewBooksEnabled(): boolean {
+  if (typeof window === "undefined") return false;
+  return localStorage.getItem("autoSyncNewBooks") === "true";
+}
+
 /**
  * Library-level sync hook.
  *
  * When the user returns to the Library tab (focus / visibilitychange → visible),
  * fetches the latest metadata.json from Google Drive, merges it into IndexedDB,
  * and signals the UI to refresh progress data.
+ *
+ * If auto-sync new books is enabled, also downloads new book blobs in background.
  *
  * Returns a `status` for visual feedback (idle → pulling → synced).
  */
@@ -27,9 +34,15 @@ export function useLibrarySync() {
     setStatus("pulling");
 
     try {
-      const { downloadSyncData } = await import("@/lib/gdrive-sync");
+      const { downloadSyncData, downloadAllBooks } = await import("@/lib/gdrive-sync");
       await downloadSyncData();
       setStatus("synced");
+
+      // Auto-download new book blobs in background if enabled
+      if (isAutoSyncNewBooksEnabled()) {
+        downloadAllBooks().catch(() => {});
+      }
+
       // Reset to idle after a brief moment so the badge reverts
       setTimeout(() => setStatus((s) => (s === "synced" ? "idle" : s)), 2000);
     } catch (err) {

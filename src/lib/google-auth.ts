@@ -104,7 +104,6 @@ export async function refreshAccessToken(): Promise<string | null> {
   const refreshToken = getStoredRefreshToken();
   if (!refreshToken) return null;
 
-  // Deduplicate concurrent refresh calls
   if (refreshPromise) return refreshPromise;
 
   refreshPromise = (async () => {
@@ -116,7 +115,6 @@ export async function refreshAccessToken(): Promise<string | null> {
       });
 
       if (!res.ok) {
-        // Refresh token revoked or invalid → force logout
         clearToken();
         return null;
       }
@@ -139,16 +137,13 @@ export async function refreshAccessToken(): Promise<string | null> {
  * Returns null if no refresh token exists or refresh fails.
  */
 export async function getValidToken(): Promise<string | null> {
-  // If token is still valid and not near expiry, return it
   if (isTokenValid() && !tokenNeedsRefresh()) {
     return getStoredToken();
   }
 
-  // Token expired or near expiry — try to refresh
   const refreshed = await refreshAccessToken();
   if (refreshed) return refreshed;
 
-  // Refresh failed — return whatever access token we have (may be expired)
   return getStoredToken();
 }
 
@@ -185,6 +180,55 @@ export async function exchangeCodeForTokens(
 }
 
 // ---------------------------------------------------------------------------
+// Google OAuth URL builder + redirect handler
+// ---------------------------------------------------------------------------
+
+const SCOPES = [
+  "https://www.googleapis.com/auth/drive.file",
+  "https://www.googleapis.com/auth/drive.appdata",
+].join(" ");
+
+/**
+ * Build the Google OAuth authorization URL with offline access.
+ * Includes a random `state` parameter for CSRF protection.
+ */
+export function getGoogleOAuthUrl(): string {
+  if (typeof window === "undefined") return "";
+
+  const clientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
+  if (!clientId) return "";
+
+  const redirectUri = window.location.origin;
+
+  const state = crypto.randomUUID();
+  sessionStorage.setItem("oauth_state", state);
+
+  const params = new URLSearchParams({
+    client_id: clientId,
+    redirect_uri: redirectUri,
+    response_type: "code",
+    scope: SCOPES,
+    access_type: "offline",
+    prompt: "consent",
+    state,
+  });
+
+  return `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
+}
+
+/**
+ * Exchange an authorization code for tokens by calling our API route.
+ */
+export async function handleOAuthCallback(
+  code: string,
+): Promise<{ accessToken: string; expiresIn: number; refreshToken: string | null } | null> {
+  if (typeof window === "undefined") return null;
+
+  const redirectUri = window.location.origin;
+  return exchangeCodeForTokens(code, redirectUri);
+}
+
+// ---------------------------------------------------------------------------
 // Drive API helpers
 // ---------------------------------------------------------------------------
 
@@ -205,7 +249,6 @@ export async function driveFetch(
   input: string | URL,
   init?: RequestInit,
 ): Promise<Response> {
-  // Get a valid token (auto-refreshes if needed)
   let token = await getValidToken();
   if (!token) throw new TokenExpiredError();
 
@@ -214,7 +257,6 @@ export async function driveFetch(
 
   let res = await fetch(input, { ...init, headers });
 
-  // If 401, try one refresh + retry
   if (res.status === 401) {
     const newToken = await refreshAccessToken();
     if (newToken) {

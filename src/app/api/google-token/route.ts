@@ -52,11 +52,13 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: "Missing authorization code" }, { status: 400 });
       }
 
+      const resolvedRedirectUri = redirect_uri || request.nextUrl.origin;
+
       const params = new URLSearchParams({
         code,
         client_id: clientId,
         client_secret: clientSecret,
-        redirect_uri: redirect_uri ?? `${request.nextUrl.origin}/`,
+        redirect_uri: resolvedRedirectUri,
         grant_type: "authorization_code",
       });
 
