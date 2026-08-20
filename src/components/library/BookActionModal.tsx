@@ -2,7 +2,14 @@
 
 import { useState, useRef, useEffect, useCallback } from "react";
 import { createPortal } from "react-dom";
-import { MoreVertical, Pencil, Trash2, X, CloudUpload, Loader2 } from "lucide-react";
+import {
+  MoreVertical,
+  Pencil,
+  Trash2,
+  X,
+  CloudUpload,
+  Loader2,
+} from "lucide-react";
 import type { BookItem } from "@/types/book";
 import { isTokenValid } from "@/lib/google-auth";
 
@@ -26,13 +33,16 @@ export function BookActionMenu({
 
   useEffect(() => {
     function handleClick(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+      if (ref.current && !ref.current.contains(e.target as Node))
+        setOpen(false);
     }
     if (open) document.addEventListener("mousedown", handleClick);
     return () => document.removeEventListener("mousedown", handleClick);
   }, [open]);
 
-  const [menuPos, setMenuPos] = useState<{ top: number; right: number } | null>(null);
+  const [menuPos, setMenuPos] = useState<{ top: number; right: number } | null>(
+    null,
+  );
 
   function handleMenuToggle(e: React.MouseEvent) {
     e.preventDefault();
@@ -42,7 +52,10 @@ export function BookActionMenu({
       setMenuPos(null);
     } else {
       const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-      setMenuPos({ top: rect.bottom + 4, right: window.innerWidth - rect.right });
+      setMenuPos({
+        top: rect.bottom + 4,
+        right: window.innerWidth - rect.right,
+      });
       setOpen(true);
     }
   }
@@ -67,9 +80,11 @@ export function BookActionMenu({
     setOpen(false);
     if (!onUpload) return;
     if (!isTokenValid()) {
-      window.dispatchEvent(new CustomEvent("monopedia:toast", {
-        detail: "Connect to Google Drive in Settings first.",
-      }));
+      window.dispatchEvent(
+        new CustomEvent("monopedia:toast", {
+          detail: "Connect to Google Drive in Settings first.",
+        }),
+      );
       return;
     }
     setUploading(true);
@@ -84,7 +99,12 @@ export function BookActionMenu({
   const showUpload = isLocal;
 
   return (
-    <div ref={ref} className="absolute top-2 right-2 z-10" onClick={stopProp} onMouseDown={stopProp}>
+    <div
+      ref={ref}
+      className="absolute top-2 right-2 z-9"
+      onClick={stopProp}
+      onMouseDown={stopProp}
+    >
       <button
         onClick={handleMenuToggle}
         className="rounded-full bg-black/40 p-1.5 text-white transition-colors hover:bg-black/60"
@@ -92,38 +112,48 @@ export function BookActionMenu({
         <MoreVertical className="h-3.5 w-3.5" />
       </button>
 
-      {open && menuPos && createPortal(
-        <div
-          className="fixed z-[9999] w-44 overflow-hidden rounded-lg border border-zinc-700 bg-zinc-900 shadow-xl"
-          style={{ top: menuPos.top, right: menuPos.right, maxWidth: "calc(100vw - 32px)" }}
-        >
-          <button
-            onClick={handleEdit}
-            className="flex w-full items-center gap-2 px-3 py-2.5 text-sm text-zinc-300 hover:bg-zinc-800 transition-colors"
+      {open &&
+        menuPos &&
+        createPortal(
+          <div
+            className="fixed z-[9999] w-44 overflow-hidden rounded-lg border border-zinc-700 bg-zinc-900 shadow-xl"
+            style={{
+              top: menuPos.top,
+              right: menuPos.right,
+              maxWidth: "calc(100vw - 32px)",
+            }}
           >
-            <Pencil className="h-3.5 w-3.5" />
-            Edit Info
-          </button>
-          {showUpload && (
             <button
-              onClick={handleUpload}
-              disabled={uploading}
-              className="flex w-full items-center gap-2 px-3 py-2.5 text-sm text-blue-400 hover:bg-zinc-800 transition-colors disabled:opacity-50"
+              onClick={handleEdit}
+              className="flex w-full items-center gap-2 px-3 py-2.5 text-sm text-zinc-300 hover:bg-zinc-800 transition-colors"
             >
-              {uploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CloudUpload className="h-3.5 w-3.5" />}
-              {uploading ? "Uploading..." : "Upload to Drive"}
+              <Pencil className="h-3.5 w-3.5" />
+              Edit Info
             </button>
-          )}
-          <button
-            onClick={handleDelete}
-            className="flex w-full items-center gap-2 px-3 py-2.5 text-sm text-red-400 hover:bg-zinc-800 transition-colors"
-          >
-            <Trash2 className="h-3.5 w-3.5" />
-            Delete Book
-          </button>
-        </div>,
-        document.body,
-      )}
+            {showUpload && (
+              <button
+                onClick={handleUpload}
+                disabled={uploading}
+                className="flex w-full items-center gap-2 px-3 py-2.5 text-sm text-blue-400 hover:bg-zinc-800 transition-colors disabled:opacity-50"
+              >
+                {uploading ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <CloudUpload className="h-3.5 w-3.5" />
+                )}
+                {uploading ? "Uploading..." : "Upload to Drive"}
+              </button>
+            )}
+            <button
+              onClick={handleDelete}
+              className="flex w-full items-center gap-2 px-3 py-2.5 text-sm text-red-400 hover:bg-zinc-800 transition-colors"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              Delete Book
+            </button>
+          </div>,
+          document.body,
+        )}
     </div>
   );
 }
@@ -166,21 +196,29 @@ export function EditBookModal({
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+      onClick={onClose}
+    >
       <div
         className="w-full max-w-sm rounded-xl border border-zinc-700 bg-zinc-900 shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between border-b border-zinc-800 px-5 py-4">
           <h3 className="text-sm font-semibold">Edit Book Info</h3>
-          <button onClick={onClose} className="rounded p-1 text-zinc-400 hover:bg-zinc-800">
+          <button
+            onClick={onClose}
+            className="rounded p-1 text-zinc-400 hover:bg-zinc-800"
+          >
             <X className="h-4 w-4" />
           </button>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4 px-5 py-4">
           <div>
-            <label className="mb-1 block text-xs font-medium text-zinc-400">Title</label>
+            <label className="mb-1 block text-xs font-medium text-zinc-400">
+              Title
+            </label>
             <input
               type="text"
               value={title}
@@ -190,7 +228,9 @@ export function EditBookModal({
             />
           </div>
           <div>
-            <label className="mb-1 block text-xs font-medium text-zinc-400">Author</label>
+            <label className="mb-1 block text-xs font-medium text-zinc-400">
+              Author
+            </label>
             <input
               type="text"
               value={author}
@@ -249,7 +289,10 @@ export function DeleteBookModal({
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+      onClick={onClose}
+    >
       <div
         className="w-full max-w-sm rounded-xl border border-zinc-700 bg-zinc-900 shadow-2xl"
         onClick={(e) => e.stopPropagation()}
@@ -260,7 +303,8 @@ export function DeleteBookModal({
           </div>
           <h3 className="text-sm font-semibold text-zinc-100">Delete Book</h3>
           <p className="mt-2 text-sm text-zinc-400">
-            Are you sure you want to delete <span className="font-medium text-zinc-200">{book.title}</span>?
+            Are you sure you want to delete{" "}
+            <span className="font-medium text-zinc-200">{book.title}</span>?
             {book.driveFileId && (
               <span className="mt-1 block text-xs text-zinc-500">
                 This will also remove the file from Google Drive.

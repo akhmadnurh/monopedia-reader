@@ -55,7 +55,12 @@ cd monopedia-reader</code></pre>
 
 3. Set up environment variables:
 Create a <code>.env.local</code> file in the root directory:
-<pre><code>NEXT_PUBLIC_GOOGLE_CLIENT_ID=your_google_client_id_here</code></pre>
+<pre><code># Google OAuth Client ID (public, used by the browser)
+NEXT_PUBLIC_GOOGLE_CLIENT_ID=your_google_client_id_here
+
+# Google OAuth Client Secret (server-side only, never exposed to the browser)
+GOOGLE_CLIENT_SECRET=your_google_client_secret_here
+</code></pre>
 
 4. Run the development server:
 <pre><code>npm run dev</code></pre>
@@ -76,7 +81,7 @@ Open http://localhost:3000 in your browser.
    </ul>
 4. Create <strong>OAuth 2.0 Client IDs</strong> (Application type: <em>Web application</em>).
 5. Add <code>http://localhost:3000</code> (and your production domain) to <strong>Authorized JavaScript origins</strong> and <strong>Authorized redirect URIs</strong>.
-6. Copy the generated <strong>Client ID</strong> and paste it into your <code>.env.local</code> file.
+6. Copy the generated <strong>Client ID</strong> and <strong>Client Secret</strong> into your <code>.env.local</code> file as <code>NEXT_PUBLIC_GOOGLE_CLIENT_ID</code> and <code>GOOGLE_CLIENT_SECRET</code> respectively.
 
 ---
 
