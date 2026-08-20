@@ -42,7 +42,7 @@ export async function updateBookMetadata(
   id: number,
   updates: Partial<Pick<BookItem, "title" | "author">>,
 ): Promise<void> {
-  await db.books.update(id, updates);
+  await db.books.update(id, { ...updates, lastUpdatedAt: Date.now() } as Partial<BookItem>);
 }
 
 export async function deleteBookCompletely(id: number): Promise<{ driveFileId?: string }> {
@@ -101,6 +101,7 @@ export interface BookMetadata {
   title: string;
   author: string;
   fileType: "epub" | "pdf";
+  lastUpdatedAt: number;
 }
 
 export interface SyncPayload {
@@ -125,6 +126,7 @@ export async function exportSyncData(): Promise<SyncPayload> {
       title: b.title,
       author: b.author,
       fileType: b.fileType,
+      lastUpdatedAt: (b as unknown as { lastUpdatedAt?: number }).lastUpdatedAt ?? b.addedAt,
     }));
 
   // Enrich progress entries with driveFileId for cross-device matching
@@ -190,6 +192,55 @@ export async function importSyncData(payload: SyncPayload): Promise<void> {
       }
     }
   });
+}
+
+/**
+ * Merge two SyncPayload (local + remote) into one.
+ * Per-entry conflict resolution: newer timestamp wins.
+ *
+ * - Books: matched by driveFileId, lastUpdatedAt decides
+ * - Progress: matched by driveFileId, lastReadAt decides
+ * - Highlights: matched by id, deduplicated
+ */
+export function mergeSyncData(local: SyncPayload, remote: SyncPayload): SyncPayload {
+  // ── Books ──
+  const bookMap = new Map<string, BookMetadata>();
+  for (const b of local.books) bookMap.set(b.driveFileId, b);
+  for (const b of remote.books) {
+    const existing = bookMap.get(b.driveFileId);
+    if (!existing || b.lastUpdatedAt > existing.lastUpdatedAt) {
+      bookMap.set(b.driveFileId, b);
+    }
+  }
+
+  // ── Progress ──
+  // Match by driveFileId (cross-device stable ID)
+  const progressMap = new Map<string, ReadingProgress>();
+  for (const p of local.progress) {
+    const key = p.driveFileId ?? `local-${p.bookId}`;
+    progressMap.set(key, p);
+  }
+  for (const p of remote.progress) {
+    const key = p.driveFileId ?? `remote-${p.bookId}`;
+    const existing = progressMap.get(key);
+    if (!existing || p.lastReadAt > existing.lastReadAt) {
+      progressMap.set(key, p);
+    }
+  }
+
+  // ── Highlights ──
+  const highlightMap = new Map<number, Highlight>();
+  for (const h of local.highlights) highlightMap.set(h.id!, h);
+  for (const h of remote.highlights) {
+    if (!highlightMap.has(h.id!)) highlightMap.set(h.id!, h);
+  }
+
+  return {
+    books: Array.from(bookMap.values()),
+    progress: Array.from(progressMap.values()),
+    highlights: Array.from(highlightMap.values()),
+    exportedAt: Date.now(),
+  };
 }
 
 export { db };

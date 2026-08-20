@@ -185,6 +185,14 @@ export function useReaderSync(options: UseReaderSyncOptions) {
     return () => document.removeEventListener("visibilitychange", handleVisibility);
   }, [syncMetadata, fetchRemoteProgress]);
 
+  // ── 5. Trigger: mount → pull remote progress immediately ──
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      fetchRemoteProgress();
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [fetchRemoteProgress]);
+
   // ── 4. Trigger: unmount → flush pending debounce ──
   useEffect(() => {
     return () => {

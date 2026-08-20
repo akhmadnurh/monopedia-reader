@@ -5,7 +5,7 @@ import {
   clearToken,
   TokenExpiredError,
 } from "./google-auth";
-import { exportSyncData, importSyncData, saveBook, saveProgress, getAllBooks, type SyncPayload } from "./db";
+import { exportSyncData, importSyncData, mergeSyncData, saveBook, saveProgress, getAllBooks, type SyncPayload } from "./db";
 import type { BookItem, ReadingProgress } from "@/types/book";
 
 const FOLDER_NAME = "Monopedia Reader";
@@ -153,12 +153,12 @@ async function findFileInFolder(
 // 3. Upload / Update metadata.json
 // ---------------------------------------------------------------------------
 
-export async function uploadSyncData(): Promise<void> {
+export async function uploadSyncData(payload?: SyncPayload): Promise<void> {
   assertTokenValid();
 
   const folderId = await getOrCreateSyncFolder();
-  const payload = await exportSyncData();
-  const body = JSON.stringify(payload);
+  const data = payload ?? await exportSyncData();
+  const body = JSON.stringify(data);
   const blob = new Blob([body], { type: "application/json" });
 
   const existing = await findFileInFolder(folderId, SYNC_FILENAME);
@@ -197,20 +197,20 @@ export async function downloadSyncData(): Promise<{
 
   if (!file) return { updated: false, remoteExportedAt: 0 };
 
-  const res = await fetchJsonWithTimeout<SyncPayload & { exportedAt: number }>(
+  const remote = await fetchJsonWithTimeout<SyncPayload & { exportedAt: number }>(
     `https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`,
   );
 
-  if (!res.exportedAt) return { updated: false, remoteExportedAt: 0 };
+  if (!remote.exportedAt) return { updated: false, remoteExportedAt: 0 };
 
   const local = await exportSyncData();
+  const merged = mergeSyncData(local, remote);
 
-  if (res.exportedAt <= local.exportedAt) {
-    return { updated: false, remoteExportedAt: res.exportedAt };
-  }
+  // Always import and upload merged result (per-entry merge, no data loss)
+  await importSyncData(merged);
+  await uploadSyncData(merged);
 
-  await importSyncData(res);
-  return { updated: true, remoteExportedAt: res.exportedAt };
+  return { updated: true, remoteExportedAt: remote.exportedAt };
 }
 
 // ---------------------------------------------------------------------------
@@ -435,11 +435,11 @@ export async function deleteFileFromDrive(fileId: string): Promise<boolean> {
 }
 
 // ---------------------------------------------------------------------------
-// 6. Full bidirectional sync
+// 6. Full bidirectional sync — per-entry merge, no data loss
 // ---------------------------------------------------------------------------
 
 export interface SyncResult {
-  direction: "uploaded" | "downloaded" | "up-to-date";
+  direction: "uploaded" | "downloaded" | "synced";
   remoteExportedAt: number;
 }
 
@@ -451,31 +451,30 @@ export async function fullSync(): Promise<SyncResult> {
 
   const local = await exportSyncData();
 
+  // First sync — no remote file yet, just upload
   if (!file) {
-    await uploadSyncData();
+    await uploadSyncData(local);
     return { direction: "uploaded", remoteExportedAt: local.exportedAt };
   }
 
+  // Download remote metadata.json
   const remote = await fetchJsonWithTimeout<SyncPayload & { exportedAt: number }>(
     `https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`,
   );
 
   if (!remote.exportedAt) {
-    await uploadSyncData();
+    await uploadSyncData(local);
     return { direction: "uploaded", remoteExportedAt: local.exportedAt };
   }
 
-  if (remote.exportedAt > local.exportedAt) {
-    await importSyncData(remote);
-    return { direction: "downloaded", remoteExportedAt: remote.exportedAt };
-  }
+  // Per-entry merge: newer timestamp wins per entry
+  const merged = mergeSyncData(local, remote);
 
-  if (local.exportedAt > remote.exportedAt) {
-    await uploadSyncData();
-    return { direction: "uploaded", remoteExportedAt: local.exportedAt };
-  }
+  // Write merged result to both local DB and Drive
+  await importSyncData(merged);
+  await uploadSyncData(merged);
 
-  return { direction: "up-to-date", remoteExportedAt: remote.exportedAt };
+  return { direction: "synced", remoteExportedAt: remote.exportedAt };
 }
 
 // ---------------------------------------------------------------------------

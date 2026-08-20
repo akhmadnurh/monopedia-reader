@@ -94,13 +94,16 @@ export default function ReadPage() {
   const { scheduleSync, syncImmediate } = useReaderSync({
     bookId,
     debounceMs: 60_000,
-    onRemoteProgress: (remotePage) => {
+    onRemoteProgress: async (remotePage) => {
       // Notify PdfViewer/EpubViewer to jump to the remote page
       document.dispatchEvent(
         new CustomEvent("monopedia:remote-page", {
           detail: { page: remotePage },
         }),
       );
+      // Re-read progress from IndexedDB (now updated by sync) and update state
+      const updatedProgress = await getProgress(bookId);
+      if (updatedProgress) setProgress(updatedProgress);
     },
   });
 
