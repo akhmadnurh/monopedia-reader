@@ -328,8 +328,8 @@ export default function ReadPage() {
       >
         <div className="flex min-w-0 items-center gap-2">
           <button
-            onClick={async () => {
-              await syncImmediate();
+            onClick={() => {
+              syncImmediate();
               router.push("/");
             }}
             className="flex-none rounded-md p-2 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100 transition-colors"

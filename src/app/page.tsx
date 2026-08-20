@@ -113,6 +113,10 @@ export default function Home() {
     if (!allProgress) return new Map<number, number>();
     return new Map(allProgress.map((p) => [p.bookId, p.percentage]));
   }, [allProgress]);
+  const lastReadAtMap = useMemo(() => {
+    if (!allProgress) return new Map<number, number>();
+    return new Map(allProgress.map((p) => [p.bookId, p.lastReadAt]));
+  }, [allProgress]);
 
   // Apply reading status filter + sort using progressMap
   const filteredBooks = useMemo(() => {
@@ -132,8 +136,8 @@ export default function Home() {
     // Sort
     return [...result].sort((a, b) => {
       if (sortBy === "recently-read") {
-        const timeA = progressMap.get(a.id!) ? a.addedAt ?? 0 : 0;
-        const timeB = progressMap.get(b.id!) ? b.addedAt ?? 0 : 0;
+        const timeA = lastReadAtMap.get(a.id!) ?? 0;
+        const timeB = lastReadAtMap.get(b.id!) ?? 0;
         return timeB - timeA;
       }
       if (sortBy === "recently-added") return (b.addedAt ?? 0) - (a.addedAt ?? 0);
@@ -142,7 +146,7 @@ export default function Home() {
       if (sortBy === "title-desc") return (b.title || "").localeCompare(a.title || "");
       return 0;
     });
-  }, [displayBooks, filterStatus, progressMap, sortBy]);
+  }, [displayBooks, filterStatus, progressMap, lastReadAtMap, sortBy]);
 
   // Modal state
   const [editBook, setEditBook] = useState<BookItem | null>(null);
