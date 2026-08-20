@@ -35,6 +35,7 @@ export interface ReaderSettings {
   margin: number;
   viewMode: ViewMode;
   navigationMode: NavigationMode;
+  useNativeViewer: boolean;
 }
 
 export const DEFAULT_READER_SETTINGS: ReaderSettings = {
@@ -45,6 +46,7 @@ export const DEFAULT_READER_SETTINGS: ReaderSettings = {
   margin: 5,
   viewMode: "single",
   navigationMode: "both",
+  useNativeViewer: false,
 };
 
 const STORAGE_KEY = "monopedia-reader-settings";

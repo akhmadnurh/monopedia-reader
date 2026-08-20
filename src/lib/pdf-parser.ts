@@ -13,8 +13,15 @@ export async function parsePdf(file: Blob, fileName?: string): Promise<ParsedPdf
     import.meta.url,
   ).toString();
 
+  const assetUrl = new URL("pdfjs-dist/", import.meta.url).toString();
+
   const data = await file.arrayBuffer();
-  const loadingTask = pdfjsLib.getDocument({ data });
+  const loadingTask = pdfjsLib.getDocument({
+    data,
+    cMapUrl: `${assetUrl}cmaps/`,
+    cMapPacked: true,
+    standardFontDataUrl: `${assetUrl}standard_fonts/`,
+  });
   const pdf = await loadingTask.promise;
 
   const metadata = await pdf.getMetadata().catch(() => null);
