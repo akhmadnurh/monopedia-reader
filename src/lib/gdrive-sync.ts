@@ -154,16 +154,21 @@ async function findFileInFolder(
 // ---------------------------------------------------------------------------
 
 export async function uploadSyncData(payload?: SyncPayload): Promise<void> {
+  console.log("[GDriveSync] ▶ uploadSyncData START");
   assertTokenValid();
 
   const folderId = await getOrCreateSyncFolder();
   const data = payload ?? await exportSyncData();
   const body = JSON.stringify(data);
+  console.log("[GDriveSync] payload size:", body.length, "bytes");
+  console.log("[GDriveSync] payload export:", JSON.stringify(data, null, 2));
   const blob = new Blob([body], { type: "application/json" });
 
   const existing = await findFileInFolder(folderId, SYNC_FILENAME);
+  console.log("[GDriveSync] existing metadata.json:", existing ? existing.id + " modified=" + existing.modifiedTime : "NOT FOUND");
 
   if (existing) {
+    console.log("[GDriveSync] PATCH updating existing file...");
     await fetchJsonWithTimeout(
       `https://www.googleapis.com/upload/drive/v3/files/${existing.id}?uploadType=multipart`,
       {
@@ -171,7 +176,9 @@ export async function uploadSyncData(payload?: SyncPayload): Promise<void> {
         body: buildMultipartBody(existing.name, blob),
       },
     );
+    console.log("[GDriveSync] ✔ PATCH done");
   } else {
+    console.log("[GDriveSync] POST creating new file...");
     await fetchJsonWithTimeout(
       "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart",
       {
@@ -179,7 +186,9 @@ export async function uploadSyncData(payload?: SyncPayload): Promise<void> {
         body: buildMultipartBody(SYNC_FILENAME, blob, folderId),
       },
     );
+    console.log("[GDriveSync] ✔ POST done");
   }
+  console.log("[GDriveSync] ✔ uploadSyncData DONE");
 }
 
 // ---------------------------------------------------------------------------
@@ -190,26 +199,55 @@ export async function downloadSyncData(): Promise<{
   updated: boolean;
   remoteExportedAt: number;
 }> {
+  console.log("[GDriveSync] ▶ downloadSyncData START");
   assertTokenValid();
 
   const folderId = await getOrCreateSyncFolder();
+  console.log("[GDriveSync] folderId:", folderId);
   const file = await findFileInFolder(folderId, SYNC_FILENAME);
+  console.log("[GDriveSync] metadata.json file on Drive:", file ? file.id : "NOT FOUND");
 
-  if (!file) return { updated: false, remoteExportedAt: 0 };
+  if (!file) { console.log("[GDriveSync] no metadata.json → return updated=false"); return { updated: false, remoteExportedAt: 0 }; }
 
   const remote = await fetchJsonWithTimeout<SyncPayload & { exportedAt: number }>(
     `https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`,
   );
 
-  if (!remote.exportedAt) return { updated: false, remoteExportedAt: 0 };
+  console.log("[GDriveSync] remote.exportedAt:", remote.exportedAt);
+  console.log("[GDriveSync] remote.books:", remote.books?.length ?? 0, "entries");
+  console.log("[GDriveSync] remote.progress:", remote.progress?.length ?? 0, "entries");
+  if (remote.progress?.length) {
+    for (const p of remote.progress) {
+      console.log("[GDriveSync]   remote progress: bookId=" + p.bookId + " driveFileId=" + p.driveFileId + " cfi=" + p.cfi + " percentage=" + p.percentage + " lastReadAt=" + p.lastReadAt);
+    }
+  }
+
+  if (!remote.exportedAt) { console.log("[GDriveSync] no exportedAt → return updated=false"); return { updated: false, remoteExportedAt: 0 }; }
 
   const local = await exportSyncData();
-  const merged = mergeSyncData(local, remote);
+  console.log("[GDriveSync] local.books:", local.books?.length ?? 0, "entries");
+  console.log("[GDriveSync] local.progress:", local.progress?.length ?? 0, "entries");
+  if (local.progress?.length) {
+    for (const p of local.progress) {
+      console.log("[GDriveSync]   local progress: bookId=" + p.bookId + " driveFileId=" + p.driveFileId + " cfi=" + p.cfi + " percentage=" + p.percentage + " lastReadAt=" + p.lastReadAt);
+    }
+  }
 
-  // Always import and upload merged result (per-entry merge, no data loss)
+  const merged = mergeSyncData(local, remote);
+  console.log("[GDriveSync] merged.books:", merged.books?.length ?? 0, "entries");
+  console.log("[GDriveSync] merged.progress:", merged.progress?.length ?? 0, "entries");
+  if (merged.progress?.length) {
+    for (const p of merged.progress) {
+      console.log("[GDriveSync]   merged progress: bookId=" + p.bookId + " driveFileId=" + p.driveFileId + " cfi=" + p.cfi + " percentage=" + p.percentage + " lastReadAt=" + p.lastReadAt);
+    }
+  }
+
+  console.log("[GDriveSync] calling importSyncData...");
   await importSyncData(merged);
+  console.log("[GDriveSync] calling uploadSyncData...");
   await uploadSyncData(merged);
 
+  console.log("[GDriveSync] ✔ downloadSyncData DONE, updated=true");
   return { updated: true, remoteExportedAt: remote.exportedAt };
 }
 
@@ -444,15 +482,22 @@ export interface SyncResult {
 }
 
 export async function fullSync(): Promise<SyncResult> {
+  console.log("[GDriveSync] ▶ fullSync START");
   assertTokenValid();
 
   const folderId = await getOrCreateSyncFolder();
   const file = await findFileInFolder(folderId, SYNC_FILENAME);
+  console.log("[GDriveSync] metadata.json on Drive:", file ? file.id : "NOT FOUND");
 
   const local = await exportSyncData();
+  console.log("[GDriveSync] local export: books=" + local.books.length + " progress=" + local.progress.length + " highlights=" + local.highlights.length);
+  for (const p of local.progress) {
+    console.log("[GDriveSync]   local: bookId=" + p.bookId + " driveFileId=" + p.driveFileId + " cfi=" + p.cfi + " percentage=" + p.percentage + " lastReadAt=" + p.lastReadAt);
+  }
 
   // First sync — no remote file yet, just upload
   if (!file) {
+    console.log("[GDriveSync] no remote file → uploading local as first sync");
     await uploadSyncData(local);
     return { direction: "uploaded", remoteExportedAt: local.exportedAt };
   }
@@ -461,19 +506,31 @@ export async function fullSync(): Promise<SyncResult> {
   const remote = await fetchJsonWithTimeout<SyncPayload & { exportedAt: number }>(
     `https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`,
   );
+  console.log("[GDriveSync] remote: books=" + (remote.books?.length ?? 0) + " progress=" + (remote.progress?.length ?? 0) + " exportedAt=" + remote.exportedAt);
+  for (const p of (remote.progress ?? [])) {
+    console.log("[GDriveSync]   remote: bookId=" + p.bookId + " driveFileId=" + p.driveFileId + " cfi=" + p.cfi + " percentage=" + p.percentage + " lastReadAt=" + p.lastReadAt);
+  }
 
   if (!remote.exportedAt) {
+    console.log("[GDriveSync] remote has no exportedAt → uploading local");
     await uploadSyncData(local);
     return { direction: "uploaded", remoteExportedAt: local.exportedAt };
   }
 
   // Per-entry merge: newer timestamp wins per entry
   const merged = mergeSyncData(local, remote);
+  console.log("[GDriveSync] merged: books=" + merged.books.length + " progress=" + merged.progress.length);
+  for (const p of merged.progress) {
+    console.log("[GDriveSync]   merged: bookId=" + p.bookId + " driveFileId=" + p.driveFileId + " cfi=" + p.cfi + " percentage=" + p.percentage + " lastReadAt=" + p.lastReadAt);
+  }
 
   // Write merged result to both local DB and Drive
+  console.log("[GDriveSync] calling importSyncData...");
   await importSyncData(merged);
+  console.log("[GDriveSync] calling uploadSyncData...");
   await uploadSyncData(merged);
 
+  console.log("[GDriveSync] ✔ fullSync DONE");
   return { direction: "synced", remoteExportedAt: remote.exportedAt };
 }
 

@@ -42,11 +42,13 @@ export function useDriveSync(options: UseDriveSyncOptions = {}) {
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const doSync = useCallback(async () => {
-    if (!isTokenValid() || syncingRef.current) return;
+    if (!isTokenValid()) { console.warn("[DriveSync] SKIPPED: token invalid"); return; }
+    if (syncingRef.current) { console.warn("[DriveSync] SKIPPED: already syncing"); return; }
 
     syncingRef.current = true;
     setStatus("syncing");
     setError(null);
+    console.log("[DriveSync] ▶ doSync START");
 
     const timeoutPromise = new Promise<never>((_, reject) => {
       setTimeout(() => reject(new Error("Sync timed out")), SYNC_TIMEOUT_MS);
@@ -54,11 +56,13 @@ export function useDriveSync(options: UseDriveSyncOptions = {}) {
 
     try {
       const result = await Promise.race([fullSync(), timeoutPromise]);
+      console.log("[DriveSync] ✔ doSync SUCCESS:", result);
       setStatus("success");
       setLastSyncAt(Date.now());
       onSyncComplete?.(result);
       setTimeout(() => setStatus((s) => (s === "success" ? "idle" : s)), 3000);
     } catch (err) {
+      console.error("[DriveSync] ✖ doSync ERROR:", err);
       if (err instanceof TokenExpiredError || (err instanceof Error && err.name === "TokenExpiredError")) {
         clearToken();
         setError("Sesi Google habis. Silakan hubungkan kembali Google Drive.");
@@ -69,6 +73,7 @@ export function useDriveSync(options: UseDriveSyncOptions = {}) {
       setStatus("idle");
     } finally {
       syncingRef.current = false;
+      console.log("[DriveSync] ■ doSync END");
     }
   }, [onSyncComplete, onAuthExpired]);
 
@@ -106,8 +111,9 @@ export function useDriveSync(options: UseDriveSyncOptions = {}) {
 
   // ── Periodic interval ──
   useEffect(() => {
-    if (!isTokenValid()) return;
+    if (!isTokenValid()) { console.warn("[DriveSync] mount: token invalid, skipping initial sync"); return; }
 
+    console.log("[DriveSync] mount: calling doSync(), interval=" + autoSyncInterval + "ms");
     doSync();
 
     intervalRef.current = setInterval(() => {

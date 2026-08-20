@@ -55,17 +55,20 @@ export function useReaderSync(options: UseReaderSyncOptions) {
 
   // ── Core sync: read latest from LocalStorage → compare updatedAt → push if newer ──
   const syncMetadata = useCallback(async () => {
-    if (!isTokenValid()) return;
-    if (typeof navigator !== "undefined" && !navigator.onLine) return;
-    if (syncingRef.current) return;
+    if (!isTokenValid()) { console.warn("[ReaderSync] syncMetadata SKIPPED: token invalid"); return; }
+    if (typeof navigator !== "undefined" && !navigator.onLine) { console.warn("[ReaderSync] syncMetadata SKIPPED: offline"); return; }
+    if (syncingRef.current) { console.warn("[ReaderSync] syncMetadata SKIPPED: already syncing"); return; }
 
     syncingRef.current = true;
+    console.log("[ReaderSync] ▶ syncMetadata START bookId=" + bookId);
     try {
       const local: LocalProgress | null = getProgressLocalStorage(bookId);
+      console.log("[ReaderSync] local LS progress:", local);
       const { fullSync } = await import("@/lib/gdrive-sync");
       const { exportSyncData } = await import("@/lib/db");
 
       const result = await fullSync();
+      console.log("[ReaderSync] fullSync result:", result);
 
       if (local) {
         const syncData = await exportSyncData();
@@ -73,14 +76,17 @@ export function useReaderSync(options: UseReaderSyncOptions) {
           (p) => p.bookId === bookId,
         );
         const remoteUpdatedAt = remoteProgress?.lastReadAt ?? 0;
+        console.log("[ReaderSync] local.updatedAt=" + local.updatedAt + " remoteUpdatedAt=" + remoteUpdatedAt);
 
         if (local.updatedAt > remoteUpdatedAt) {
+          console.log("[ReaderSync] local is newer, calling fullSync again to push");
           await fullSync();
         }
       }
 
       onSyncCompleteRef.current?.(result);
     } catch (err) {
+      console.error("[ReaderSync] syncMetadata ERROR:", err);
       if (
         err instanceof Error &&
         (err.name === "TokenExpiredError" || err.message.includes("401"))
@@ -95,39 +101,53 @@ export function useReaderSync(options: UseReaderSyncOptions) {
 
   // ── Fetch remote progress for this book (pull on focus) ──
   const fetchRemoteProgress = useCallback(async () => {
-    if (!isTokenValid()) return;
-    if (typeof navigator !== "undefined" && !navigator.onLine) return;
-    if (syncingRef.current) return;
+    if (!isTokenValid()) { console.warn("[ReaderSync] fetchRemoteProgress SKIPPED: token invalid"); return; }
+    if (typeof navigator !== "undefined" && !navigator.onLine) { console.warn("[ReaderSync] fetchRemoteProgress SKIPPED: offline"); return; }
+    if (syncingRef.current) { console.warn("[ReaderSync] fetchRemoteProgress SKIPPED: already syncing"); return; }
 
     syncingRef.current = true;
+    console.log("[ReaderSync] ▶ fetchRemoteProgress START bookId=" + bookId);
     // Dispatch syncing event for visual feedback
     document.dispatchEvent(new CustomEvent("monopedia:sync-pulling"));
 
     try {
       const { downloadSyncData } = await import("@/lib/gdrive-sync");
+      console.log("[ReaderSync] calling downloadSyncData()...");
       const result = await downloadSyncData();
+      console.log("[ReaderSync] downloadSyncData result:", result);
 
       if (result.updated) {
         // After download, read the updated progress from IndexedDB
         const { getProgress } = await import("@/lib/db");
         const dbProgress = await getProgress(bookId);
+        console.log("[ReaderSync] dbProgress after download:", dbProgress);
 
         if (dbProgress) {
           const remotePage = dbProgress.cfi.startsWith("page-")
             ? parseInt(dbProgress.cfi.replace("page-", ""), 10)
             : 0;
+          console.log("[ReaderSync] remotePage=" + remotePage);
 
           if (remotePage > 0) {
             const local = getProgressLocalStorage(bookId);
             const localPage = local?.lastPage ?? 0;
+            console.log("[ReaderSync] localPage=" + localPage + " vs remotePage=" + remotePage);
 
             if (remotePage > localPage) {
+              console.log("[ReaderSync] ✔ remote is newer, dispatching onRemoteProgress(" + remotePage + ")");
               onRemoteProgressRef.current?.(remotePage);
+            } else {
+              console.log("[ReaderSync] local is up-to-date or newer, no jump needed");
             }
           }
+        } else {
+          console.log("[ReaderSync] no dbProgress found for bookId=" + bookId);
         }
+      } else {
+        console.log("[ReaderSync] downloadSyncData returned updated=false");
       }
     } catch (err) {
+      console.error("[ReaderSync] fetchRemoteProgress ERROR:", err);
       if (
         err instanceof Error &&
         (err.name === "TokenExpiredError" || err.message.includes("401"))
@@ -139,6 +159,7 @@ export function useReaderSync(options: UseReaderSyncOptions) {
     } finally {
       syncingRef.current = false;
       document.dispatchEvent(new CustomEvent("monopedia:sync-pulled"));
+      console.log("[ReaderSync] ■ fetchRemoteProgress END");
     }
   }, [bookId]);
 

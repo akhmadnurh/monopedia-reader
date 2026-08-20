@@ -26,16 +26,19 @@ export function useLibrarySync() {
   const syncingRef = useRef(false);
 
   const fetchRemoteProgress = useCallback(async () => {
-    if (!isTokenValid()) return;
-    if (typeof navigator !== "undefined" && !navigator.onLine) return;
-    if (syncingRef.current) return;
+    if (!isTokenValid()) { console.warn("[LibrarySync] SKIPPED: token invalid"); return; }
+    if (typeof navigator !== "undefined" && !navigator.onLine) { console.warn("[LibrarySync] SKIPPED: offline"); return; }
+    if (syncingRef.current) { console.warn("[LibrarySync] SKIPPED: already syncing"); return; }
 
     syncingRef.current = true;
     setStatus("pulling");
+    console.log("[LibrarySync] ▶ fetchRemoteProgress START");
 
     try {
       const { downloadSyncData, downloadAllBooks } = await import("@/lib/gdrive-sync");
-      await downloadSyncData();
+      console.log("[LibrarySync] calling downloadSyncData()...");
+      const result = await downloadSyncData();
+      console.log("[LibrarySync] downloadSyncData result:", result);
       setStatus("synced");
 
       // Auto-download new book blobs in background if enabled
@@ -46,6 +49,7 @@ export function useLibrarySync() {
       // Reset to idle after a brief moment so the badge reverts
       setTimeout(() => setStatus((s) => (s === "synced" ? "idle" : s)), 2000);
     } catch (err) {
+      console.error("[LibrarySync] ✖ ERROR:", err);
       if (
         err instanceof Error &&
         (err.name === "TokenExpiredError" || err.message.includes("401"))
@@ -55,12 +59,15 @@ export function useLibrarySync() {
       setStatus("idle");
     } finally {
       syncingRef.current = false;
+      console.log("[LibrarySync] ■ fetchRemoteProgress END");
     }
   }, []);
 
   // ── Trigger: mount → pull remote progress immediately ──
   useEffect(() => {
+    console.log("[LibrarySync] mount effect fired, scheduling fetchRemoteProgress in 500ms");
     const timer = setTimeout(() => {
+      console.log("[LibrarySync] mount timer triggered, calling fetchRemoteProgress");
       fetchRemoteProgress();
     }, 500);
     return () => clearTimeout(timer);
