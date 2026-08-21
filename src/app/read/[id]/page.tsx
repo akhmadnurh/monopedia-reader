@@ -86,7 +86,6 @@ export default function ReadPage() {
   const [highlightRefreshKey, setHighlightRefreshKey] = useState(0);
   const [loading, setLoading] = useState(true);
   const [pullingSync, setPullingSync] = useState(false);
-  const [hasRenderFail, setHasRenderFail] = useState(false);
 
   const { status: syncStatus } = useDriveSync({
     autoSyncInterval: 60_000,
@@ -156,11 +155,6 @@ export default function ReadPage() {
       cancelled = true;
     };
   }, [bookId, router]);
-
-  // Reset render fail flag when switching viewer mode
-  useEffect(() => {
-    setHasRenderFail(false);
-  }, [settings.useNativeViewer]);
 
   // Wake Lock
   useEffect(() => {
@@ -603,66 +597,16 @@ export default function ReadPage() {
                 ))}
               </div>
             </div>
-
-            {/* Engine — PDF only */}
-            {book.fileType === "pdf" && (
-              <div className="flex items-center gap-3">
-                <span
-                  className="w-16 text-xs font-medium"
-                  style={{ color: themeCfg.fg }}
-                >
-                  Engine
-                </span>
-                <div className="flex gap-1">
-                  <button
-                    onClick={() => updateSettings({ useNativeViewer: false })}
-                    className={`rounded-md px-3 py-1.5 text-xs transition-colors ${
-                      !settings.useNativeViewer
-                        ? "bg-zinc-600 text-zinc-100"
-                        : "text-zinc-400 hover:bg-zinc-800"
-                    }`}
-                  >
-                    PDF.js
-                  </button>
-                  <button
-                    onClick={() => updateSettings({ useNativeViewer: true })}
-                    className={`rounded-md px-3 py-1.5 text-xs transition-colors ${
-                      settings.useNativeViewer
-                        ? "bg-zinc-600 text-zinc-100"
-                        : "text-zinc-400 hover:bg-zinc-800"
-                    }`}
-                  >
-                    Native
-                  </button>
-                </div>
-              </div>
-            )}
           </div>
         </div>
       )}
 
       {/* ── Main content: viewer fills all remaining space ── */}
       <main className="relative min-h-0 flex-1 w-full overflow-hidden">
-        {/* Auto-detect fallback banner — only in PDF.js mode */}
-        {!settings.useNativeViewer && book.fileType === "pdf" && hasRenderFail && (
-          <div className="absolute top-0 left-0 right-0 z-30 bg-amber-900/90 backdrop-blur-sm px-4 py-2 flex items-center justify-between">
-            <span className="text-amber-200 text-xs">
-              PDF ini memiliki format kompleks yang gagal dirender.
-            </span>
-            <button
-              onClick={() => updateSettings({ useNativeViewer: true })}
-              className="rounded bg-amber-700 px-3 py-1 text-xs text-white hover:bg-amber-600 transition-colors"
-            >
-              Gunakan Native Viewer
-            </button>
-          </div>
-        )}
-
         <ReaderEngine
           book={book}
           progress={progress}
           onProgress={handleProgress}
-          onRenderFail={() => setHasRenderFail(true)}
           settings={settings}
         />
 

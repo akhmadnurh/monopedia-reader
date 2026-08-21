@@ -1,3 +1,5 @@
+import { getPDFium, PdfiumDocument } from "./pdfium-engine";
+
 export interface ParsedPdf {
   title: string;
   author: string;
@@ -6,58 +8,33 @@ export interface ParsedPdf {
 }
 
 export async function parsePdf(file: Blob, fileName?: string): Promise<ParsedPdf> {
-  const pdfjsLib = await import("pdfjs-dist");
-
-  pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
-    "pdfjs-dist/build/pdf.worker.min.mjs",
-    import.meta.url,
-  ).toString();
-
-  const assetUrl = new URL("pdfjs-dist/", import.meta.url).toString();
-
   const data = await file.arrayBuffer();
-  const loadingTask = pdfjsLib.getDocument({
-    data,
-    cMapUrl: `${assetUrl}cmaps/`,
-    cMapPacked: true,
-    standardFontDataUrl: `${assetUrl}standard_fonts/`,
-  });
-  const pdf = await loadingTask.promise;
+  const pdfium = await getPDFium();
+  const doc = await PdfiumDocument.load(pdfium, data);
 
-  const metadata = await pdf.getMetadata().catch(() => null);
-  const info = metadata?.info as Record<string, string> | null;
-
-  // Fallback: use filename without extension if metadata title is missing
+  const meta = doc.getMetadata();
   const fallbackTitle = fileName
     ? fileName.replace(/\.[^/.]+$/, "")
     : "Untitled PDF";
-  const title = info?.Title || info?.Subject || fallbackTitle;
-  const author = info?.Author || "-";
+  const title = meta.title || fallbackTitle;
+  const author = meta.author || "-";
 
-  const totalPages = pdf.numPages;
+  const totalPages = doc.numPages;
 
   let cover: Blob | null = null;
   try {
-    const page = await pdf.getPage(1);
-    const viewport = page.getViewport({ scale: 0.5 });
+    const page = doc.getPage(1);
     const canvas = document.createElement("canvas");
-    canvas.width = viewport.width;
-    canvas.height = viewport.height;
-    const ctx = canvas.getContext("2d")!;
+    page.renderToCanvas(canvas, 0.5);
+    page.close();
 
-    await page.render({
-      canvas,
-      canvasContext: ctx,
-      viewport,
-    }).promise;
-
-    const blob = await new Promise<Blob>((resolve) =>
+    cover = await new Promise<Blob>((resolve) =>
       canvas.toBlob((b) => resolve(b!), "image/jpeg", 0.7),
     );
-    cover = blob;
   } catch {
     cover = null;
   }
 
+  doc.close();
   return { title, author, totalPages, cover };
 }
