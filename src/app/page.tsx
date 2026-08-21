@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 import { BookOpen, Upload, Settings, AlertCircle, X, CloudCheck, CloudUpload, CloudOff, Loader2, Check, Search, ChevronDown, Plus, RefreshCw } from "lucide-react";
 import { saveBook, updateBookMetadata, deleteBookCompletely, db, getProgress } from "@/lib/db";
 import { deleteFileFromDrive, uploadSyncData, uploadBookFile } from "@/lib/gdrive-sync";
@@ -59,6 +59,7 @@ export default function Home() {
   const [showExitModal, setShowExitModal] = useState(false);
   const historyPushedRef = useRef(false);
   const exitModalOpenRef = useRef(false);
+  const pathname = usePathname();
 
   // Control bar state
   const [searchQuery, setSearchQuery] = useState("");
@@ -105,6 +106,7 @@ export default function Home() {
   // When state is { page: "home" }, the user navigated back TO Home from
   // another page (e.g. Settings) — let it through silently.
   useEffect(() => {
+    if (pathname !== "/") return;
     function handlePopState(event: PopStateEvent) {
       // Navigated back TO Home from another page → don't intercept
       if (event.state?.page === "home") return;
@@ -116,7 +118,7 @@ export default function Home() {
     }
     window.addEventListener("popstate", handlePopState);
     return () => window.removeEventListener("popstate", handlePopState);
-  }, []);
+  }, [pathname]);
 
   // Desktop File Handling API: receive files opened via OS "Open With"
   useEffect(() => {
@@ -587,7 +589,11 @@ export default function Home() {
         )}
 
         {/* Book Grid */}
-        {filteredBooks && filteredBooks.length > 0 ? (
+        {books === undefined ? (
+          <div className="flex flex-1 items-center justify-center py-20">
+            <Loader2 className="h-6 w-6 animate-spin text-zinc-600" />
+          </div>
+        ) : filteredBooks.length > 0 ? (
           <div className="mx-auto grid w-full max-w-5xl grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
             {filteredBooks.map((book) => (
               <BookCard
@@ -600,15 +606,13 @@ export default function Home() {
             ))}
           </div>
         ) : (
-          filteredBooks !== undefined && (
-            <div className="flex flex-1 items-center justify-center">
-              <p className="text-zinc-500">
-                {searchQuery || filterStatus !== "all"
-                  ? "No books match your search or filter."
-                  : "No books yet. Import your first EPUB or PDF above."}
-              </p>
-            </div>
-          )
+          <div className="flex flex-1 items-center justify-center">
+            <p className="text-zinc-500">
+              {searchQuery || filterStatus !== "all"
+                ? "No books match your search or filter."
+                : "No books yet. Import your first EPUB or PDF above."}
+            </p>
+          </div>
         )}
       </main>
 
