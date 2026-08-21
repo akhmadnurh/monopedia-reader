@@ -49,5 +49,14 @@ export default function manifest(): MetadataRoute.Manifest {
         ],
       },
     },
+    file_handlers: [
+      {
+        action: "/import",
+        accept: {
+          "application/epub+zip": [".epub"],
+          "application/pdf": [".pdf"],
+        },
+      },
+    ],
   } as MetadataRoute.Manifest;
 }

@@ -105,6 +105,68 @@ export default function Home() {
     return () => window.removeEventListener("popstate", handlePopState);
   }, []);
 
+  // Desktop File Handling API: receive files opened via OS "Open With"
+  useEffect(() => {
+    const w = window as typeof window & { launchQueue?: { setConsumer: (cb: (params: { files: FileSystemFileHandle[] }) => void) => void } };
+    if (!w.launchQueue) return;
+
+    w.launchQueue.setConsumer(async (launchParams) => {
+      if (!launchParams.files?.length) return;
+
+      for (const fileHandle of launchParams.files) {
+        try {
+          const file = await fileHandle.getFile();
+          const ext = file.name.split(".").pop()?.toLowerCase();
+          if (ext !== "epub" && ext !== "pdf") continue;
+
+          const blob = new Blob([await file.arrayBuffer()], {
+            type: ext === "epub" ? "application/epub+zip" : "application/pdf",
+          });
+
+          if (ext === "epub") {
+            const parsed = await parseEpub(blob, file.name);
+            const autoSync = localStorage.getItem("autoSyncNewBooks") === "true";
+            const connected = isTokenValid();
+            await saveBook({
+              title: parsed.title,
+              author: parsed.author,
+              fileType: "epub",
+              cover: parsed.cover ?? undefined,
+              totalChapters: parsed.chapters.length,
+              addedAt: Date.now(),
+              fileSize: file.size,
+              fileBlob: blob,
+              syncStatus: connected && autoSync ? "pending" : "local",
+            });
+          } else {
+            const { parsePdf } = await import("@/lib/pdf-parser");
+            const parsed = await parsePdf(blob, file.name);
+            const autoSync = localStorage.getItem("autoSyncNewBooks") === "true";
+            const connected = isTokenValid();
+            await saveBook({
+              title: parsed.title,
+              author: parsed.author,
+              fileType: "pdf",
+              cover: parsed.cover ?? undefined,
+              totalChapters: parsed.totalPages,
+              addedAt: Date.now(),
+              fileSize: file.size,
+              fileBlob: blob,
+              syncStatus: connected && autoSync ? "pending" : "local",
+            });
+          }
+        } catch (err) {
+          console.error("[launchQueue] Failed to import file:", err);
+          window.dispatchEvent(
+            new CustomEvent("monopedia:toast", {
+              detail: `Failed to import ${fileHandle.name}: ${err instanceof Error ? err.message : "Unknown error"}`,
+            }),
+          );
+        }
+      }
+    });
+  }, []);
+
   // Filter (sort applied later after progressMap is available)
   const displayBooks = useMemo(() => {
     if (!books) return [];

@@ -104,7 +104,7 @@ export function BookActionMenu({
     } catch {
       window.dispatchEvent(
         new CustomEvent("monopedia:toast", {
-          detail: "Failed to share file.",
+          detail: "Failed to share ebook.",
         }),
       );
     } finally {
@@ -157,7 +157,7 @@ export function BookActionMenu({
               className="flex w-full items-center gap-2 px-3 py-2.5 text-sm text-zinc-300 hover:bg-zinc-800 transition-colors disabled:opacity-50"
             >
               <Share2 className="h-3.5 w-3.5" />
-              {sharing ? "Sharing..." : "Share File"}
+              {sharing ? "Sharing..." : "Share Ebook"}
             </button>
             {showUpload && (
               <button
