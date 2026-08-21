@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
   Download,
@@ -48,6 +49,7 @@ function Switch({
 /*  Settings Page                                                       */
 /* ------------------------------------------------------------------ */
 export default function SettingsPage() {
+  const router = useRouter();
   const [connected, setConnected] = useState(false);
   const [pulling, setPulling] = useState(false);
   const [pullResult, setPullResult] = useState<PullResult | null>(null);
@@ -101,12 +103,12 @@ export default function SettingsPage() {
       {/* Header */}
       <header className="sticky top-0 z-10 border-b border-zinc-800 bg-zinc-950/80 backdrop-blur-md">
         <div className="mx-auto flex h-14 max-w-2xl items-center gap-3 px-4">
-          <a
-            href="/"
+          <button
+            onClick={() => router.push("/")}
             className="rounded-lg p-2 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100 transition-colors"
           >
             <ArrowLeft className="h-4 w-4" />
-          </a>
+          </button>
           <h1 className="text-base font-semibold">Settings</h1>
         </div>
       </header>

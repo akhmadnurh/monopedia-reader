@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
+import { useRouter } from "next/navigation";
 import { BookOpen, Upload, Settings, AlertCircle, X, CloudCheck, CloudUpload, CloudOff, Loader2, Check, Search, ChevronDown, Plus, RefreshCw } from "lucide-react";
 import { saveBook, updateBookMetadata, deleteBookCompletely, db, getProgress } from "@/lib/db";
 import { deleteFileFromDrive, uploadSyncData, uploadBookFile } from "@/lib/gdrive-sync";
@@ -49,11 +50,14 @@ function Toast({
 /* ------------------------------------------------------------------ */
 export default function Home() {
   const books = useLiveQuery(() => db.books.toArray(), []);
+  const router = useRouter();
   const [importing, setImporting] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isConnected, setIsConnected] = useState(false);
   const { status: librarySyncStatus } = useLibrarySync();
+  const [showExitModal, setShowExitModal] = useState(false);
+  const historyPushedRef = useRef(false);
 
   // Control bar state
   const [searchQuery, setSearchQuery] = useState("");
@@ -83,6 +87,22 @@ export default function Home() {
       window.removeEventListener("storage", handleStorage);
       clearInterval(id);
     };
+  }, []);
+
+  // Push history entry on mount so Back button triggers popstate
+  useEffect(() => {
+    if (historyPushedRef.current) return;
+    historyPushedRef.current = true;
+    history.pushState({ page: "home" }, "", "/");
+  }, []);
+
+  // Trap browser Back button
+  useEffect(() => {
+    function handlePopState() {
+      setShowExitModal(true);
+    }
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
   }, []);
 
   // Filter (sort applied later after progressMap is available)
@@ -336,12 +356,12 @@ export default function Home() {
             >
               <Plus className="h-5 w-5" />
             </button>
-            <a
-              href="/settings"
+            <button
+              onClick={() => router.push("/settings")}
               className="rounded-md p-2 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100 transition-colors"
             >
               <Settings className="h-5 w-5" />
-            </a>
+            </button>
           </div>
         </div>
       </header>
@@ -539,6 +559,47 @@ export default function Home() {
 
       {/* Toast */}
       {toastMsg && <Toast message={toastMsg} onDismiss={() => setToastMsg(null)} />}
+
+      {/* Exit Confirmation Modal */}
+      {showExitModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="mx-4 w-full max-w-sm rounded-2xl border border-zinc-700 bg-zinc-900 p-6 shadow-2xl">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-zinc-800">
+                <AlertCircle className="h-5 w-5 text-zinc-400" />
+              </div>
+              <div>
+                <h2 className="text-sm font-semibold text-zinc-100">Keluar dari Monopedia?</h2>
+                <p className="text-xs text-zinc-400">Progress bacaan sudah tersimpan otomatis.</p>
+              </div>
+            </div>
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => {
+                  setShowExitModal(false);
+                  history.pushState({ page: "home" }, "", "/");
+                }}
+                className="rounded-lg px-4 py-2 text-sm font-medium text-zinc-300 hover:bg-zinc-800 transition-colors"
+              >
+                Batal
+              </button>
+              <button
+                onClick={() => {
+                  setShowExitModal(false);
+                  if (window.matchMedia("(display-mode: standalone)").matches) {
+                    window.close();
+                  } else {
+                    history.back();
+                  }
+                }}
+                className="rounded-lg bg-zinc-700 px-4 py-2 text-sm font-medium text-zinc-100 hover:bg-zinc-600 transition-colors"
+              >
+                Keluar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -585,6 +646,7 @@ function BookCard({
   onDelete: () => void;
   onUpload: () => void;
 }) {
+  const router = useRouter();
   const [coverUrl, setCoverUrl] = useState<string | null>(null);
   const progress = useLiveQuery(() => getProgress(book.id!), [book.id]);
 
@@ -598,14 +660,13 @@ function BookCard({
 
   return (
     <div className="group relative flex flex-col overflow-hidden rounded-xl bg-zinc-900 transition-colors hover:bg-zinc-800">
-      {/* Cover image — entire card is clickable EXCEPT the action menu */}
-      <a
-        href={`/read/${book.id}`}
-        className="flex flex-col"
+      <div
+        className="flex flex-col cursor-pointer"
         onClick={(e) => {
           if ((e.target as HTMLElement).closest("[data-action-menu]")) {
-            e.preventDefault();
+            return;
           }
+          router.push(`/read/${book.id}`);
         }}
       >
         <div className="relative aspect-[2/3] w-full bg-zinc-800">
@@ -654,7 +715,7 @@ function BookCard({
             ) : null}
           </div>
         </div>
-      </a>
+      </div>
 
       {/* Action menu — absolutely positioned, stops propagation */}
       <div data-action-menu>

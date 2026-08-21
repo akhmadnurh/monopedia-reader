@@ -110,6 +110,7 @@ export default function ReadPage() {
   const [showBar, setShowBar] = useState(true);
 
   const wakeLockRef = useRef<WakeLockSentinel | null>(null);
+  const backSyncGuardRef = useRef(false);
 
   // Load book — LocalStorage first (instant), then IndexedDB (richer data)
   useEffect(() => {
@@ -191,6 +192,15 @@ export default function ReadPage() {
     return () =>
       document.removeEventListener("visibilitychange", handleVisibility);
   }, []);
+
+  // Flush sync on tab close / OS back gesture
+  useEffect(() => {
+    function handleBeforeUnload() {
+      syncImmediate();
+    }
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [syncImmediate]);
 
   // Listen for toggle-bar from PdfViewer tap zones
   useEffect(() => {
@@ -331,8 +341,10 @@ export default function ReadPage() {
       >
         <div className="flex min-w-0 items-center gap-2">
           <button
-            onClick={() => {
-              syncImmediate();
+            onClick={async () => {
+              if (backSyncGuardRef.current) return;
+              backSyncGuardRef.current = true;
+              await syncImmediate();
               router.push("/");
             }}
             className="flex-none rounded-md p-2 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100 transition-colors"
