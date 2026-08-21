@@ -51,10 +51,11 @@ export default function EpubViewer({
       if (destroyed) return;
       setToc(navigation.toc);
 
+      const isWide = containerRef.current!.clientWidth >= 640;
       const rendition = book.renderTo(containerRef.current!, {
         width: "100%",
         height: "100%",
-        spread: "none",
+        spread: isWide ? "auto" : "none",
         flow: "paginated",
       });
 
@@ -77,9 +78,7 @@ export default function EpubViewer({
         setCurrentChapter(chapterTitle);
 
         const pctNum = Math.round(pct * 100);
-        // 1. Instant write to LocalStorage (offline-first, synchronous)
         saveProgressLocalStorage(bookId, displayed.page, pctNum);
-        // 2. Write to IndexedDB (richer store, async)
         const progress: ReadingProgress = {
           bookId, cfi, percentage: pctNum,
           chapterTitle, lastReadAt: Date.now(),
@@ -89,7 +88,6 @@ export default function EpubViewer({
         onProgress?.(progress);
       });
 
-      // Text selection → dispatch custom event for FloatingToolbar
       rendition.on("selected", (cfiRange: string, contents: { window: Window }) => {
         if (destroyed) return;
         const selection = contents.window.getSelection();
@@ -117,6 +115,22 @@ export default function EpubViewer({
   useEffect(() => {
     if (renditionRef.current) applySettings(renditionRef.current, settings);
   }, [settings]);
+
+  useEffect(() => {
+    const rendition = renditionRef.current;
+    const container = containerRef.current;
+    if (!rendition || !container) return;
+
+    function handleResize() {
+      if (!renditionRef.current || !containerRef.current) return;
+      const isWide = containerRef.current.clientWidth >= 640;
+      renditionRef.current.resize(containerRef.current.clientWidth, containerRef.current.clientHeight);
+      renditionRef.current.spread(isWide ? "auto" : "none");
+    }
+
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
 
   const goToNext = useCallback(() => renditionRef.current?.next(), []);
   const goToPrev = useCallback(() => renditionRef.current?.prev(), []);

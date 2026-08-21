@@ -96,14 +96,19 @@ export default function PdfViewer({
     return PdfiumDocument.load(pdfium, data);
   }
 
-  async function computeFitScale(): Promise<number> {
+  function computeFitScale(): number {
     if (!wrapperRef.current || !pdfRef.current) return 1;
     const page = pdfRef.current.getPage(1);
     const viewport = page.getViewport({ scale: 1 });
-    const containerWidth = wrapperRef.current.clientWidth - 2;
     page.close();
-    if (containerWidth <= 0) return 1;
-    return containerWidth / viewport.width;
+
+    const containerWidth = wrapperRef.current.clientWidth;
+    const containerHeight = wrapperRef.current.clientHeight;
+
+    if (containerWidth <= 0 || containerHeight <= 0) return 1;
+    const scaleX = containerWidth / viewport.width;
+    const scaleY = containerHeight / viewport.height;
+    return Math.min(scaleX, scaleY);
   }
 
   useEffect(() => {
@@ -121,7 +126,7 @@ export default function PdfViewer({
         await new Promise((r) => setTimeout(r, 0));
         if (cancelled) return;
 
-        const fit = await computeFitScale();
+        const fit = computeFitScale();
         if (cancelled) return;
 
         setFitScale(fit);
@@ -337,10 +342,9 @@ export default function PdfViewer({
   }, [fitScale]);
   const zoomOut = useCallback(() => setScale((s) => Math.max(0.3, s - 0.15)), []);
   const fitWidth = useCallback(() => {
-    computeFitScale().then((s) => {
-      setFitScale(s);
-      setScale(s);
-    });
+    const s = computeFitScale();
+    setFitScale(s);
+    setScale(s);
   }, []);
 
   const retryLoad = useCallback(() => {
