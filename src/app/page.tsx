@@ -58,6 +58,7 @@ export default function Home() {
   const { status: librarySyncStatus } = useLibrarySync();
   const [showExitModal, setShowExitModal] = useState(false);
   const historyPushedRef = useRef(false);
+  const exitModalOpenRef = useRef(false);
 
   // Control bar state
   const [searchQuery, setSearchQuery] = useState("");
@@ -89,16 +90,28 @@ export default function Home() {
     };
   }, []);
 
-  // Push history entry on mount so Back button triggers popstate
+  // Push a single dummy state on mount so Back triggers popstate.
+  // Skip if already in our trapped state (e.g. navigating back from Settings).
   useEffect(() => {
     if (historyPushedRef.current) return;
     historyPushedRef.current = true;
-    history.pushState({ page: "home" }, "", "/");
+    if (history.state?.page !== "home") {
+      history.pushState({ page: "home" }, "", "/");
+    }
   }, []);
 
-  // Trap browser Back button
+  // Trap browser Back button — only intercept when user is ON the Home page
+  // and tries to go further back (state === null means the real browser entry).
+  // When state is { page: "home" }, the user navigated back TO Home from
+  // another page (e.g. Settings) — let it through silently.
   useEffect(() => {
-    function handlePopState() {
+    function handlePopState(event: PopStateEvent) {
+      // Navigated back TO Home from another page → don't intercept
+      if (event.state?.page === "home") return;
+      // Modal already open → ignore duplicate popstate
+      if (exitModalOpenRef.current) return;
+
+      exitModalOpenRef.current = true;
       setShowExitModal(true);
     }
     window.addEventListener("popstate", handlePopState);
@@ -638,6 +651,7 @@ export default function Home() {
             <div className="flex justify-end gap-2">
               <button
                 onClick={() => {
+                  exitModalOpenRef.current = false;
                   setShowExitModal(false);
                   history.pushState({ page: "home" }, "", "/");
                 }}
@@ -647,12 +661,9 @@ export default function Home() {
               </button>
               <button
                 onClick={() => {
+                  exitModalOpenRef.current = false;
                   setShowExitModal(false);
-                  if (window.matchMedia("(display-mode: standalone)").matches) {
-                    window.close();
-                  } else {
-                    history.back();
-                  }
+                  window.close();
                 }}
                 className="rounded-lg bg-zinc-700 px-4 py-2 text-sm font-medium text-zinc-100 hover:bg-zinc-600 transition-colors"
               >
