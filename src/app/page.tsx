@@ -569,8 +569,8 @@ export default function Home() {
                 <AlertCircle className="h-5 w-5 text-zinc-400" />
               </div>
               <div>
-                <h2 className="text-sm font-semibold text-zinc-100">Keluar dari Monopedia?</h2>
-                <p className="text-xs text-zinc-400">Progress bacaan sudah tersimpan otomatis.</p>
+                <h2 className="text-sm font-semibold text-zinc-100">Exit Monopedia?</h2>
+                <p className="text-xs text-zinc-400">Your reading progress has been saved automatically.</p>
               </div>
             </div>
             <div className="flex justify-end gap-2">
@@ -581,7 +581,7 @@ export default function Home() {
                 }}
                 className="rounded-lg px-4 py-2 text-sm font-medium text-zinc-300 hover:bg-zinc-800 transition-colors"
               >
-                Batal
+                Cancel
               </button>
               <button
                 onClick={() => {
@@ -594,7 +594,7 @@ export default function Home() {
                 }}
                 className="rounded-lg bg-zinc-700 px-4 py-2 text-sm font-medium text-zinc-100 hover:bg-zinc-600 transition-colors"
               >
-                Keluar
+                Exit
               </button>
             </div>
           </div>
