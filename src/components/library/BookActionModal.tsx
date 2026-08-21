@@ -9,9 +9,11 @@ import {
   X,
   CloudUpload,
   Loader2,
+  Share2,
 } from "lucide-react";
 import type { BookItem } from "@/types/book";
 import { isTokenValid } from "@/lib/google-auth";
+import { shareBookFile } from "@/lib/share-file";
 
 /* ------------------------------------------------------------------ */
 /*  Action Menu (three-dot button on each card)                         */
@@ -29,6 +31,7 @@ export function BookActionMenu({
 }) {
   const [open, setOpen] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [sharing, setSharing] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -91,6 +94,24 @@ export function BookActionMenu({
     onUpload();
   }
 
+  async function handleShare(e: React.MouseEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    setOpen(false);
+    setSharing(true);
+    try {
+      await shareBookFile(book);
+    } catch {
+      window.dispatchEvent(
+        new CustomEvent("monopedia:toast", {
+          detail: "Failed to share file.",
+        }),
+      );
+    } finally {
+      setSharing(false);
+    }
+  }
+
   function stopProp(e: React.MouseEvent) {
     e.stopPropagation();
   }
@@ -129,6 +150,14 @@ export function BookActionMenu({
             >
               <Pencil className="h-3.5 w-3.5" />
               Edit Info
+            </button>
+            <button
+              onClick={handleShare}
+              disabled={sharing}
+              className="flex w-full items-center gap-2 px-3 py-2.5 text-sm text-zinc-300 hover:bg-zinc-800 transition-colors disabled:opacity-50"
+            >
+              <Share2 className="h-3.5 w-3.5" />
+              {sharing ? "Sharing..." : "Share File"}
             </button>
             {showUpload && (
               <button

@@ -31,5 +31,23 @@ export default function manifest(): MetadataRoute.Manifest {
         purpose: "maskable",
       },
     ],
-  };
+    share_target: {
+      action: "/import",
+      method: "POST",
+      enctype: "multipart/form-data",
+      params: {
+        files: [
+          {
+            name: "ebook",
+            accept: [
+              "application/pdf",
+              "application/epub+zip",
+              ".pdf",
+              ".epub",
+            ],
+          },
+        ],
+      },
+    },
+  } as MetadataRoute.Manifest;
 }

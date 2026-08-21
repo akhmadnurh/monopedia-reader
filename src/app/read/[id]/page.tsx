@@ -566,6 +566,7 @@ export default function ReadPage() {
                   Single Page
                 </button>
                 <button
+                  hidden
                   onClick={() => updateSettings({ viewMode: "continuous" })}
                   className={`rounded-md px-3 py-1.5 text-xs transition-colors ${
                     settings.viewMode === "continuous"
