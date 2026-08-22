@@ -692,8 +692,9 @@ export default function Home() {
                   setShowExitModal(false);
                   // Coba close window (works di beberapa PWA context)
                   window.close();
-                  // Fallback: clear history agar back gesture menutup app
-                  history.go(-history.length);
+                  // Fallback: navigate ke about:blank untuk "kill" app session
+                  // Di Android, ini akan menutup app karena tidak ada content
+                  window.location.replace('about:blank');
                 }}
                 className="rounded-lg bg-zinc-700 px-4 py-2 text-sm font-medium text-zinc-100 hover:bg-zinc-600 transition-colors"
               >
