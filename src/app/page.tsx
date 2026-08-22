@@ -57,7 +57,6 @@ export default function Home() {
   const [isConnected, setIsConnected] = useState(false);
   const { status: librarySyncStatus } = useLibrarySync();
   const [showExitModal, setShowExitModal] = useState(false);
-  const historyPushedRef = useRef(false);
   const exitModalOpenRef = useRef(false);
   const pathname = usePathname();
   const [refreshKey, setRefreshKey] = useState(0);
@@ -104,25 +103,22 @@ export default function Home() {
     return () => window.removeEventListener("monopedia:refresh-progress", handleRefreshProgress);
   }, []);
 
-  // Push a single dummy state on mount so Back triggers popstate.
-  // Skip if already in our trapped state (e.g. navigating back from Settings).
-  // Also skip during OAuth callback so the redirect flow isn't interrupted.
+  // Push dummy state on mount so Back triggers popstate.
+  // Selalu cek history.state (bukan ref) karena ref tidak reset antar mount.
+  // Skip during OAuth callback so the redirect flow isn't interrupted.
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const isOAuthCallback = params.has("code") || params.has("state") || params.has("error");
     if (isOAuthCallback) return;
 
-    if (historyPushedRef.current) return;
-    historyPushedRef.current = true;
     if (history.state?.page !== "home") {
       history.pushState({ page: "home" }, "", "/");
     }
   }, []);
 
-  // Trap browser Back button — only intercept when user is ON the Home page
-  // and tries to go further back (state === null means the real browser entry).
-  // When state is { page: "home" }, the user navigated back TO Home from
-  // another page (e.g. Settings) — let it through silently.
+  // Trap browser Back button — only intercept when user is ON the Home page.
+  // Langsung push state untuk cancel back navigation (mencegah glitch),
+  // baru setelah itu tampilkan modal.
   // Skip during OAuth callback so redirect flow isn't interrupted.
   useEffect(() => {
     if (pathname !== "/") return;
@@ -132,10 +128,11 @@ export default function Home() {
     if (isOAuthCallback) return;
 
     function handlePopState(event: PopStateEvent) {
-      // Navigated back TO Home from another page → don't intercept
-      if (event.state?.page === "home") return;
       // Modal already open → ignore duplicate popstate
       if (exitModalOpenRef.current) return;
+
+      // Cancel back navigation dengan push state baru
+      history.pushState({ page: "home" }, "", "/");
 
       exitModalOpenRef.current = true;
       setShowExitModal(true);
@@ -681,6 +678,8 @@ export default function Home() {
                 onClick={() => {
                   exitModalOpenRef.current = false;
                   setShowExitModal(false);
+                  // Push 2 dummy states untuk rebuild buffer
+                  history.pushState({ page: "home" }, "", "/");
                   history.pushState({ page: "home" }, "", "/");
                 }}
                 className="rounded-lg px-4 py-2 text-sm font-medium text-zinc-300 hover:bg-zinc-800 transition-colors"
@@ -691,7 +690,10 @@ export default function Home() {
                 onClick={() => {
                   exitModalOpenRef.current = false;
                   setShowExitModal(false);
+                  // Coba close window (works di beberapa PWA context)
                   window.close();
+                  // Fallback: clear history agar back gesture menutup app
+                  history.go(-history.length);
                 }}
                 className="rounded-lg bg-zinc-700 px-4 py-2 text-sm font-medium text-zinc-100 hover:bg-zinc-600 transition-colors"
               >
