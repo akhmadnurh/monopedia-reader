@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { useRouter, usePathname } from "next/navigation";
-import { BookOpen, Upload, Settings, AlertCircle, X, CloudCheck, CloudUpload, CloudOff, Loader2, Check, Search, ChevronDown, Plus, RefreshCw } from "lucide-react";
+import { BookOpen, Upload, Settings, X, CloudCheck, CloudUpload, CloudOff, Loader2, Check, Search, ChevronDown, Plus, RefreshCw } from "lucide-react";
 import { saveBook, updateBookMetadata, deleteBookCompletely, db, getProgress } from "@/lib/db";
 import { deleteFileFromDrive, uploadSyncData, uploadBookFile } from "@/lib/gdrive-sync";
 import { isTokenValid, clearToken } from "@/lib/google-auth";
@@ -35,10 +35,9 @@ function Toast({
   onDismiss: () => void;
 }) {
   return (
-    <div className="fixed bottom-6 left-1/2 z-50 flex -translate-x-1/2 items-center gap-3 rounded-xl border border-red-800 bg-red-950 px-4 py-3 shadow-2xl">
-      <AlertCircle className="h-4 w-4 shrink-0 text-red-400" />
-      <span className="text-sm text-red-200">{message}</span>
-      <button onClick={onDismiss} className="shrink-0 rounded p-0.5 text-red-400 hover:text-red-200">
+    <div className="fixed bottom-6 left-1/2 z-50 flex -translate-x-1/2 items-center gap-3 rounded-xl border border-zinc-700 bg-zinc-800 px-4 py-3 shadow-2xl">
+      <span className="text-sm text-zinc-200">{message}</span>
+      <button onClick={onDismiss} className="shrink-0 rounded p-0.5 text-zinc-400 hover:text-zinc-200">
         <X className="h-3.5 w-3.5" />
       </button>
     </div>
@@ -141,7 +140,7 @@ export default function Home() {
 
       // Back PERTAMA → show toast
       window.dispatchEvent(new CustomEvent("monopedia:toast", {
-        detail: "Tekan back lagi untuk keluar"
+        detail: "Press back again to exit"
       }));
 
       // Reset setelah 2 detik
