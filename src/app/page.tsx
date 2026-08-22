@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { useRouter, usePathname } from "next/navigation";
-import { BookOpen, Upload, Settings, X, CloudCheck, CloudUpload, CloudOff, Loader2, Check, Search, ChevronDown, Plus, RefreshCw } from "lucide-react";
+import { BookOpen, Upload, Settings, CloudCheck, CloudUpload, CloudOff, Loader2, Check, Search, ChevronDown, Plus, RefreshCw } from "lucide-react";
 import { saveBook, updateBookMetadata, deleteBookCompletely, db, getProgress } from "@/lib/db";
 import { deleteFileFromDrive, uploadSyncData, uploadBookFile } from "@/lib/gdrive-sync";
 import { isTokenValid, clearToken } from "@/lib/google-auth";
@@ -27,19 +27,10 @@ const ALLOWED_MIMES = new Set([
 /* ------------------------------------------------------------------ */
 /*  Toast Component                                                     */
 /* ------------------------------------------------------------------ */
-function Toast({
-  message,
-  onDismiss,
-}: {
-  message: string;
-  onDismiss: () => void;
-}) {
+function Toast({ message, visible }: { message: string; visible: boolean }) {
   return (
-    <div className="fixed bottom-6 left-1/2 z-50 flex -translate-x-1/2 items-center gap-3 rounded-xl border border-zinc-700 bg-zinc-800 px-4 py-3 shadow-2xl">
+    <div className={`fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-xl border border-zinc-700 bg-zinc-800 px-4 py-3 shadow-2xl transition-opacity duration-300 ${visible ? "opacity-100" : "opacity-0"}`}>
       <span className="text-sm text-zinc-200">{message}</span>
-      <button onClick={onDismiss} className="shrink-0 rounded p-0.5 text-zinc-400 hover:text-zinc-200">
-        <X className="h-3.5 w-3.5" />
-      </button>
     </div>
   );
 }
@@ -289,12 +280,18 @@ export default function Home() {
 
   // Toast state
   const [toastMsg, setToastMsg] = useState<string | null>(null);
+  const [toastVisible, setToastVisible] = useState(false);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   function showToast(msg: string) {
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
     setToastMsg(msg);
-    toastTimerRef.current = setTimeout(() => setToastMsg(null), 4000);
+    setToastVisible(true);
+    toastTimerRef.current = setTimeout(() => {
+      setToastVisible(false);
+      // Unmount setelah animasi fade out selesai (300ms)
+      setTimeout(() => setToastMsg(null), 300);
+    }, 4000);
   }
 
   // Listen for custom toast events (from BookActionMenu when disconnected)
@@ -675,7 +672,7 @@ export default function Home() {
       )}
 
       {/* Toast */}
-      {toastMsg && <Toast message={toastMsg} onDismiss={() => setToastMsg(null)} />}
+      {toastMsg && <Toast message={toastMsg} visible={toastVisible} />}
     </div>
   );
 }
