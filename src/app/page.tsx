@@ -56,10 +56,9 @@ export default function Home() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isConnected, setIsConnected] = useState(false);
   const { status: librarySyncStatus } = useLibrarySync();
-  const [showExitModal, setShowExitModal] = useState(false);
-  const exitModalOpenRef = useRef(false);
   const pathname = usePathname();
   const [refreshKey, setRefreshKey] = useState(0);
+  const exitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Control bar state
   const [searchQuery, setSearchQuery] = useState("");
@@ -116,9 +115,9 @@ export default function Home() {
     }
   }, []);
 
-  // Trap browser Back button — only intercept when user is ON the Home page.
-  // Langsung push state untuk cancel back navigation (mencegah glitch),
-  // baru setelah itu tampilkan modal.
+  // Trap browser Back button — Double Back to Exit pattern.
+  // Back pertama → toast "Tekan back lagi untuk keluar"
+  // Back kedua (≤2 detik) → biarkan exit
   // Skip during OAuth callback so redirect flow isn't interrupted.
   useEffect(() => {
     if (pathname !== "/") return;
@@ -127,18 +126,37 @@ export default function Home() {
     const isOAuthCallback = params.has("code") || params.has("state") || params.has("error");
     if (isOAuthCallback) return;
 
-    function handlePopState(event: PopStateEvent) {
-      // Modal already open → ignore duplicate popstate
-      if (exitModalOpenRef.current) return;
-
-      // Cancel back navigation dengan push state baru
+    function handlePopState(_event: PopStateEvent) {
+      // Cancel back navigation — stay on Main Page
       history.pushState({ page: "home" }, "", "/");
 
-      exitModalOpenRef.current = true;
-      setShowExitModal(true);
+      if (exitTimerRef.current) {
+        // Back KEDUA dalam 2 detik → exit
+        clearTimeout(exitTimerRef.current);
+        exitTimerRef.current = null;
+        // Pop state yang baru di-push, lalu back lagi untuk exit
+        history.back();
+        return;
+      }
+
+      // Back PERTAMA → show toast
+      window.dispatchEvent(new CustomEvent("monopedia:toast", {
+        detail: "Tekan back lagi untuk keluar"
+      }));
+
+      // Reset setelah 2 detik
+      exitTimerRef.current = setTimeout(() => {
+        exitTimerRef.current = null;
+      }, 2000);
     }
     window.addEventListener("popstate", handlePopState);
-    return () => window.removeEventListener("popstate", handlePopState);
+    return () => {
+      window.removeEventListener("popstate", handlePopState);
+      if (exitTimerRef.current) {
+        clearTimeout(exitTimerRef.current);
+        exitTimerRef.current = null;
+      }
+    };
   }, [pathname]);
 
   // Desktop File Handling API: receive files opened via OS "Open With"
@@ -659,51 +677,6 @@ export default function Home() {
 
       {/* Toast */}
       {toastMsg && <Toast message={toastMsg} onDismiss={() => setToastMsg(null)} />}
-
-      {/* Exit Confirmation Modal */}
-      {showExitModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-          <div className="mx-4 w-full max-w-sm rounded-2xl border border-zinc-700 bg-zinc-900 p-6 shadow-2xl">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-zinc-800">
-                <AlertCircle className="h-5 w-5 text-zinc-400" />
-              </div>
-              <div>
-                <h2 className="text-sm font-semibold text-zinc-100">Exit Monopedia?</h2>
-                <p className="text-xs text-zinc-400">Your reading progress has been saved automatically.</p>
-              </div>
-            </div>
-            <div className="flex justify-end gap-2">
-              <button
-                onClick={() => {
-                  exitModalOpenRef.current = false;
-                  setShowExitModal(false);
-                  // Push 2 dummy states untuk rebuild buffer
-                  history.pushState({ page: "home" }, "", "/");
-                  history.pushState({ page: "home" }, "", "/");
-                }}
-                className="rounded-lg px-4 py-2 text-sm font-medium text-zinc-300 hover:bg-zinc-800 transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => {
-                  exitModalOpenRef.current = false;
-                  setShowExitModal(false);
-                  // Coba close window (works di beberapa PWA context)
-                  window.close();
-                  // Fallback: navigate ke about:blank untuk "kill" app session
-                  // Di Android, ini akan menutup app karena tidak ada content
-                  window.location.replace('about:blank');
-                }}
-                className="rounded-lg bg-zinc-700 px-4 py-2 text-sm font-medium text-zinc-100 hover:bg-zinc-600 transition-colors"
-              >
-                Exit
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
