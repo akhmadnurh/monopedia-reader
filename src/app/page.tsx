@@ -492,11 +492,25 @@ export default function Home() {
   }, [deleteBookTarget]);
 
   const handleUploadBook = useCallback(async (book: BookItem) => {
-    if (!isTokenValid()) return;
-    if (!book.id) return;
+    console.log(
+      "[UploadBook] ▶ START book:",
+      book.title,
+      "tokenValid:",
+      isTokenValid(),
+    );
+    if (!isTokenValid()) {
+      console.warn("[UploadBook] ✗ token invalid, aborting");
+      return;
+    }
+    if (!book.id) {
+      console.warn("[UploadBook] ✗ book.id missing, aborting");
+      return;
+    }
     try {
       await db.books.update(book.id, { syncStatus: "pending" });
+      console.log("[UploadBook] calling uploadBookFile...");
       const driveFileId = await uploadBookFile(book);
+      console.log("[UploadBook] uploadBookFile returned:", driveFileId);
       if (driveFileId) {
         await db.books.update(book.id, { driveFileId, syncStatus: "synced" });
         // Update metadata.json on Drive so other devices see the new book
@@ -508,9 +522,11 @@ export default function Home() {
         if (!isTokenValid()) {
           clearToken();
         }
+        console.error("[UploadBook] ✗ uploadBookFile returned null");
         showToast(`Upload failed. Please try again.`);
       }
-    } catch {
+    } catch (err) {
+      console.error("[UploadBook] ✗ caught:", err);
       if (book.id) await db.books.update(book.id, { syncStatus: "local" });
       showToast(`Upload failed. Please try again.`);
     }

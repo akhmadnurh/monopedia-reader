@@ -41,7 +41,10 @@ function getStoredRefreshToken(): string | null {
 
 function storeAccessToken(accessToken: string, expiresIn: number): void {
   localStorage.setItem(STORAGE_ACCESS_TOKEN, accessToken);
-  localStorage.setItem(STORAGE_TOKEN_EXPIRY, String(Date.now() + expiresIn * 1000));
+  localStorage.setItem(
+    STORAGE_TOKEN_EXPIRY,
+    String(Date.now() + expiresIn * 1000),
+  );
 }
 
 function storeRefreshToken(refreshToken: string): void {
@@ -51,7 +54,11 @@ function storeRefreshToken(refreshToken: string): void {
 /**
  * Store all tokens after a successful login or token exchange.
  */
-export function storeTokens(accessToken: string, expiresIn: number, refreshToken: string | null): void {
+export function storeTokens(
+  accessToken: string,
+  expiresIn: number,
+  refreshToken: string | null,
+): void {
   storeAccessToken(accessToken, expiresIn);
   if (refreshToken) {
     storeRefreshToken(refreshToken);
@@ -111,7 +118,10 @@ export async function refreshAccessToken(): Promise<string | null> {
       const res = await fetch("/api/google-token", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "refresh", refresh_token: refreshToken }),
+        body: JSON.stringify({
+          action: "refresh",
+          refresh_token: refreshToken,
+        }),
       });
 
       if (!res.ok) {
@@ -154,7 +164,11 @@ export async function getValidToken(): Promise<string | null> {
 export async function exchangeCodeForTokens(
   code: string,
   redirectUri?: string,
-): Promise<{ accessToken: string; expiresIn: number; refreshToken: string | null } | null> {
+): Promise<{
+  accessToken: string;
+  expiresIn: number;
+  refreshToken: string | null;
+} | null> {
   try {
     const res = await fetch("/api/google-token", {
       method: "POST",
@@ -221,7 +235,11 @@ export function getGoogleOAuthUrl(): string {
  */
 export async function handleOAuthCallback(
   code: string,
-): Promise<{ accessToken: string; expiresIn: number; refreshToken: string | null } | null> {
+): Promise<{
+  accessToken: string;
+  expiresIn: number;
+  refreshToken: string | null;
+} | null> {
   if (typeof window === "undefined") return null;
 
   const redirectUri = window.location.origin;
@@ -250,21 +268,32 @@ export async function driveFetch(
   init?: RequestInit,
 ): Promise<Response> {
   let token = await getValidToken();
-  if (!token) throw new TokenExpiredError();
+  if (!token) {
+    console.warn(
+      "[driveFetch] no valid token available, throwing TokenExpiredError",
+    );
+    throw new TokenExpiredError();
+  }
 
   const headers = new Headers(init?.headers);
   headers.set("Authorization", `Bearer ${token}`);
 
+  const url = typeof input === "string" ? input : input.toString();
   let res = await fetch(input, { ...init, headers });
 
   if (res.status === 401) {
+    console.warn("[driveFetch] 401 on", url, "— attempting token refresh");
     const newToken = await refreshAccessToken();
     if (newToken) {
       headers.set("Authorization", `Bearer ${newToken}`);
       res = await fetch(input, { ...init, headers });
+      console.log("[driveFetch] retry after refresh:", res.status);
+    } else {
+      console.error("[driveFetch] token refresh returned null");
     }
 
     if (res.status === 401) {
+      console.error("[driveFetch] still 401 after refresh, clearing token");
       clearToken();
       throw new TokenExpiredError();
     }

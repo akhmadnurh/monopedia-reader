@@ -41,7 +41,9 @@ export async function POST(request: NextRequest) {
 
     if (!clientId || !clientSecret) {
       return NextResponse.json(
-        { error: "Google OAuth is not configured. Missing client ID or secret." },
+        {
+          error: "Google OAuth is not configured. Missing client ID or secret.",
+        },
         { status: 500 },
       );
     }
@@ -49,7 +51,10 @@ export async function POST(request: NextRequest) {
     if (action === "exchange") {
       const { code, redirect_uri } = body;
       if (!code) {
-        return NextResponse.json({ error: "Missing authorization code" }, { status: 400 });
+        return NextResponse.json(
+          { error: "Missing authorization code" },
+          { status: 400 },
+        );
       }
 
       const resolvedRedirectUri = redirect_uri || request.nextUrl.origin;
@@ -70,10 +75,15 @@ export async function POST(request: NextRequest) {
 
       if (!res.ok) {
         const err = await res.text();
+        console.error("[google-token] exchange failed:", res.status, err);
         return NextResponse.json({ error: err }, { status: res.status });
       }
 
       const data: TokenResponse = await res.json();
+      console.log(
+        "[google-token] exchange OK, has_refresh_token:",
+        !!data.refresh_token,
+      );
       return NextResponse.json({
         access_token: data.access_token,
         expires_in: data.expires_in,
@@ -85,7 +95,10 @@ export async function POST(request: NextRequest) {
     if (action === "refresh") {
       const { refresh_token } = body;
       if (!refresh_token) {
-        return NextResponse.json({ error: "Missing refresh_token" }, { status: 400 });
+        return NextResponse.json(
+          { error: "Missing refresh_token" },
+          { status: 400 },
+        );
       }
 
       const params = new URLSearchParams({
@@ -103,10 +116,12 @@ export async function POST(request: NextRequest) {
 
       if (!res.ok) {
         const err = await res.text();
+        console.error("[google-token] refresh failed:", res.status, err);
         return NextResponse.json({ error: err }, { status: res.status });
       }
 
       const data: TokenResponse = await res.json();
+      console.log("[google-token] refresh OK, expires_in:", data.expires_in);
       return NextResponse.json({
         access_token: data.access_token,
         expires_in: data.expires_in,

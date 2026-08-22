@@ -1,11 +1,18 @@
 import {
   driveFetch,
-  driveFetchJson,
   isTokenValid,
   clearToken,
   TokenExpiredError,
 } from "./google-auth";
-import { exportSyncData, importSyncData, mergeSyncData, saveBook, saveProgress, getAllBooks, type SyncPayload } from "./db";
+import {
+  exportSyncData,
+  importSyncData,
+  mergeSyncData,
+  saveBook,
+  saveProgress,
+  getAllBooks,
+  type SyncPayload,
+} from "./db";
 import type { BookItem, ReadingProgress } from "@/types/book";
 
 const FOLDER_NAME = "Monopedia Reader";
@@ -53,7 +60,7 @@ async function fetchWithTimeout(
   const controller = new AbortController();
   const id = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    return await driveFetch(input, { ...init, signal: controller.signal, keepalive: true });
+    return await driveFetch(input, { ...init, signal: controller.signal });
   } finally {
     clearTimeout(id);
   }
@@ -158,14 +165,17 @@ export async function uploadSyncData(payload?: SyncPayload): Promise<void> {
   assertTokenValid();
 
   const folderId = await getOrCreateSyncFolder();
-  const data = payload ?? await exportSyncData();
+  const data = payload ?? (await exportSyncData());
   const body = JSON.stringify(data);
   console.log("[GDriveSync] payload size:", body.length, "bytes");
   console.log("[GDriveSync] payload export:", JSON.stringify(data, null, 2));
   const blob = new Blob([body], { type: "application/json" });
 
   const existing = await findFileInFolder(folderId, SYNC_FILENAME);
-  console.log("[GDriveSync] existing metadata.json:", existing ? existing.id + " modified=" + existing.modifiedTime : "NOT FOUND");
+  console.log(
+    "[GDriveSync] existing metadata.json:",
+    existing ? existing.id + " modified=" + existing.modifiedTime : "NOT FOUND",
+  );
 
   if (existing) {
     console.log("[GDriveSync] PATCH updating existing file...");
@@ -205,40 +215,102 @@ export async function downloadSyncData(): Promise<{
   const folderId = await getOrCreateSyncFolder();
   console.log("[GDriveSync] folderId:", folderId);
   const file = await findFileInFolder(folderId, SYNC_FILENAME);
-  console.log("[GDriveSync] metadata.json file on Drive:", file ? file.id : "NOT FOUND");
-
-  if (!file) { console.log("[GDriveSync] no metadata.json → return updated=false"); return { updated: false, remoteExportedAt: 0 }; }
-
-  const remote = await fetchJsonWithTimeout<SyncPayload & { exportedAt: number }>(
-    `https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`,
+  console.log(
+    "[GDriveSync] metadata.json file on Drive:",
+    file ? file.id : "NOT FOUND",
   );
 
+  if (!file) {
+    console.log("[GDriveSync] no metadata.json → return updated=false");
+    return { updated: false, remoteExportedAt: 0 };
+  }
+
+  const remote = await fetchJsonWithTimeout<
+    SyncPayload & { exportedAt: number }
+  >(`https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`);
+
   console.log("[GDriveSync] remote.exportedAt:", remote.exportedAt);
-  console.log("[GDriveSync] remote.books:", remote.books?.length ?? 0, "entries");
-  console.log("[GDriveSync] remote.progress:", remote.progress?.length ?? 0, "entries");
+  console.log(
+    "[GDriveSync] remote.books:",
+    remote.books?.length ?? 0,
+    "entries",
+  );
+  console.log(
+    "[GDriveSync] remote.progress:",
+    remote.progress?.length ?? 0,
+    "entries",
+  );
   if (remote.progress?.length) {
     for (const p of remote.progress) {
-      console.log("[GDriveSync]   remote progress: bookId=" + p.bookId + " driveFileId=" + p.driveFileId + " cfi=" + p.cfi + " percentage=" + p.percentage + " lastReadAt=" + p.lastReadAt);
+      console.log(
+        "[GDriveSync]   remote progress: bookId=" +
+          p.bookId +
+          " driveFileId=" +
+          p.driveFileId +
+          " cfi=" +
+          p.cfi +
+          " percentage=" +
+          p.percentage +
+          " lastReadAt=" +
+          p.lastReadAt,
+      );
     }
   }
 
-  if (!remote.exportedAt) { console.log("[GDriveSync] no exportedAt → return updated=false"); return { updated: false, remoteExportedAt: 0 }; }
+  if (!remote.exportedAt) {
+    console.log("[GDriveSync] no exportedAt → return updated=false");
+    return { updated: false, remoteExportedAt: 0 };
+  }
 
   const local = await exportSyncData();
   console.log("[GDriveSync] local.books:", local.books?.length ?? 0, "entries");
-  console.log("[GDriveSync] local.progress:", local.progress?.length ?? 0, "entries");
+  console.log(
+    "[GDriveSync] local.progress:",
+    local.progress?.length ?? 0,
+    "entries",
+  );
   if (local.progress?.length) {
     for (const p of local.progress) {
-      console.log("[GDriveSync]   local progress: bookId=" + p.bookId + " driveFileId=" + p.driveFileId + " cfi=" + p.cfi + " percentage=" + p.percentage + " lastReadAt=" + p.lastReadAt);
+      console.log(
+        "[GDriveSync]   local progress: bookId=" +
+          p.bookId +
+          " driveFileId=" +
+          p.driveFileId +
+          " cfi=" +
+          p.cfi +
+          " percentage=" +
+          p.percentage +
+          " lastReadAt=" +
+          p.lastReadAt,
+      );
     }
   }
 
   const merged = mergeSyncData(local, remote);
-  console.log("[GDriveSync] merged.books:", merged.books?.length ?? 0, "entries");
-  console.log("[GDriveSync] merged.progress:", merged.progress?.length ?? 0, "entries");
+  console.log(
+    "[GDriveSync] merged.books:",
+    merged.books?.length ?? 0,
+    "entries",
+  );
+  console.log(
+    "[GDriveSync] merged.progress:",
+    merged.progress?.length ?? 0,
+    "entries",
+  );
   if (merged.progress?.length) {
     for (const p of merged.progress) {
-      console.log("[GDriveSync]   merged progress: bookId=" + p.bookId + " driveFileId=" + p.driveFileId + " cfi=" + p.cfi + " percentage=" + p.percentage + " lastReadAt=" + p.lastReadAt);
+      console.log(
+        "[GDriveSync]   merged progress: bookId=" +
+          p.bookId +
+          " driveFileId=" +
+          p.driveFileId +
+          " cfi=" +
+          p.cfi +
+          " percentage=" +
+          p.percentage +
+          " lastReadAt=" +
+          p.lastReadAt,
+      );
     }
   }
 
@@ -258,16 +330,30 @@ export async function downloadSyncData(): Promise<{
 export async function uploadBookFile(
   book: Omit<BookItem, "id">,
 ): Promise<string | null> {
+  const ext = book.fileType === "pdf" ? "pdf" : "epub";
+  const safeName = `${book.title.replace(/[^a-zA-Z0-9\-_ ]/g, "_").slice(0, 80)}.${ext}`;
   try {
+    console.log(
+      "[uploadBookFile] ▶ START safeName:",
+      safeName,
+      "fileBlob.size:",
+      book.fileBlob?.size,
+    );
     assertTokenValid();
 
     const folderId = await getOrCreateSyncFolder();
-    const ext = book.fileType === "pdf" ? "pdf" : "epub";
-    const safeName = `${book.title.replace(/[^a-zA-Z0-9\-_ ]/g, "_").slice(0, 80)}.${ext}`;
+    console.log("[uploadBookFile] folderId:", folderId);
 
     const existing = await findFileInFolder(folderId, safeName);
-    if (existing) return existing.id;
+    if (existing) {
+      console.log(
+        "[uploadBookFile] file already exists on Drive, id:",
+        existing.id,
+      );
+      return existing.id;
+    }
 
+    console.log("[uploadBookFile] POST uploading to Drive...");
     const created = await fetchJsonWithTimeout<IdOnly>(
       "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart",
       {
@@ -276,9 +362,12 @@ export async function uploadBookFile(
       },
     );
 
+    console.log("[uploadBookFile] ✔ created.id:", created.id);
     return created.id;
   } catch (err) {
+    console.error("[uploadBookFile] ✗ Error:", err);
     if (err instanceof Error && err.name === "TokenExpiredError") {
+      console.warn("[uploadBookFile] clearing token due to expiry");
       clearToken();
     }
     return null;
@@ -303,7 +392,12 @@ export async function downloadAllBooks(): Promise<PullResult> {
   assertTokenValid();
 
   const folderId = await getOrCreateSyncFolder();
-  const result: PullResult = { imported: 0, skipped: 0, errors: 0, errorDetails: [] };
+  const result: PullResult = {
+    imported: 0,
+    skipped: 0,
+    errors: 0,
+    errorDetails: [],
+  };
 
   // ── Step 1: Download metadata.json (Single Source of Truth) ──
   let remoteMeta: SyncPayload | null = null;
@@ -346,7 +440,9 @@ export async function downloadAllBooks(): Promise<PullResult> {
   );
 
   const localBooks = await getAllBooks();
-  const localDriveIds = new Set(localBooks.map((b) => b.driveFileId).filter(Boolean));
+  const localDriveIds = new Set(
+    localBooks.map((b) => b.driveFileId).filter(Boolean),
+  );
 
   for (const file of res.files) {
     try {
@@ -384,15 +480,19 @@ export async function downloadAllBooks(): Promise<PullResult> {
         if (fileType === "epub") {
           const { parseEpub } = await import("./epub-parser");
           const parsed = await parseEpub(blob, file.name);
-          if (parsed.title && parsed.title !== "Untitled") parsedTitle = parsed.title;
-          if (parsed.author && parsed.author !== "-") parsedAuthor = parsed.author;
+          if (parsed.title && parsed.title !== "Untitled")
+            parsedTitle = parsed.title;
+          if (parsed.author && parsed.author !== "-")
+            parsedAuthor = parsed.author;
           totalChapters = parsed.chapters.length;
           cover = parsed.cover;
         } else {
           const { parsePdf } = await import("./pdf-parser");
           const parsed = await parsePdf(blob, file.name);
-          if (parsed.title && parsed.title !== "Untitled PDF") parsedTitle = parsed.title;
-          if (parsed.author && parsed.author !== "-") parsedAuthor = parsed.author;
+          if (parsed.title && parsed.title !== "Untitled PDF")
+            parsedTitle = parsed.title;
+          if (parsed.author && parsed.author !== "-")
+            parsedAuthor = parsed.author;
           totalChapters = parsed.totalPages;
           cover = parsed.cover;
         }
@@ -443,7 +543,9 @@ export async function downloadAllBooks(): Promise<PullResult> {
       result.errors++;
 
       if (err instanceof Error && err.name === "TokenExpiredError") {
-        result.errorDetails.push("Google Drive session expired. Please reconnect.");
+        result.errorDetails.push(
+          "Google Drive session expired. Please reconnect.",
+        );
         break;
       }
 
@@ -487,12 +589,33 @@ export async function fullSync(): Promise<SyncResult> {
 
   const folderId = await getOrCreateSyncFolder();
   const file = await findFileInFolder(folderId, SYNC_FILENAME);
-  console.log("[GDriveSync] metadata.json on Drive:", file ? file.id : "NOT FOUND");
+  console.log(
+    "[GDriveSync] metadata.json on Drive:",
+    file ? file.id : "NOT FOUND",
+  );
 
   const local = await exportSyncData();
-  console.log("[GDriveSync] local export: books=" + local.books.length + " progress=" + local.progress.length + " highlights=" + local.highlights.length);
+  console.log(
+    "[GDriveSync] local export: books=" +
+      local.books.length +
+      " progress=" +
+      local.progress.length +
+      " highlights=" +
+      local.highlights.length,
+  );
   for (const p of local.progress) {
-    console.log("[GDriveSync]   local: bookId=" + p.bookId + " driveFileId=" + p.driveFileId + " cfi=" + p.cfi + " percentage=" + p.percentage + " lastReadAt=" + p.lastReadAt);
+    console.log(
+      "[GDriveSync]   local: bookId=" +
+        p.bookId +
+        " driveFileId=" +
+        p.driveFileId +
+        " cfi=" +
+        p.cfi +
+        " percentage=" +
+        p.percentage +
+        " lastReadAt=" +
+        p.lastReadAt,
+    );
   }
 
   // First sync — no remote file yet, just upload
@@ -503,12 +626,30 @@ export async function fullSync(): Promise<SyncResult> {
   }
 
   // Download remote metadata.json
-  const remote = await fetchJsonWithTimeout<SyncPayload & { exportedAt: number }>(
-    `https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`,
+  const remote = await fetchJsonWithTimeout<
+    SyncPayload & { exportedAt: number }
+  >(`https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`);
+  console.log(
+    "[GDriveSync] remote: books=" +
+      (remote.books?.length ?? 0) +
+      " progress=" +
+      (remote.progress?.length ?? 0) +
+      " exportedAt=" +
+      remote.exportedAt,
   );
-  console.log("[GDriveSync] remote: books=" + (remote.books?.length ?? 0) + " progress=" + (remote.progress?.length ?? 0) + " exportedAt=" + remote.exportedAt);
-  for (const p of (remote.progress ?? [])) {
-    console.log("[GDriveSync]   remote: bookId=" + p.bookId + " driveFileId=" + p.driveFileId + " cfi=" + p.cfi + " percentage=" + p.percentage + " lastReadAt=" + p.lastReadAt);
+  for (const p of remote.progress ?? []) {
+    console.log(
+      "[GDriveSync]   remote: bookId=" +
+        p.bookId +
+        " driveFileId=" +
+        p.driveFileId +
+        " cfi=" +
+        p.cfi +
+        " percentage=" +
+        p.percentage +
+        " lastReadAt=" +
+        p.lastReadAt,
+    );
   }
 
   if (!remote.exportedAt) {
@@ -519,9 +660,25 @@ export async function fullSync(): Promise<SyncResult> {
 
   // Per-entry merge: newer timestamp wins per entry
   const merged = mergeSyncData(local, remote);
-  console.log("[GDriveSync] merged: books=" + merged.books.length + " progress=" + merged.progress.length);
+  console.log(
+    "[GDriveSync] merged: books=" +
+      merged.books.length +
+      " progress=" +
+      merged.progress.length,
+  );
   for (const p of merged.progress) {
-    console.log("[GDriveSync]   merged: bookId=" + p.bookId + " driveFileId=" + p.driveFileId + " cfi=" + p.cfi + " percentage=" + p.percentage + " lastReadAt=" + p.lastReadAt);
+    console.log(
+      "[GDriveSync]   merged: bookId=" +
+        p.bookId +
+        " driveFileId=" +
+        p.driveFileId +
+        " cfi=" +
+        p.cfi +
+        " percentage=" +
+        p.percentage +
+        " lastReadAt=" +
+        p.lastReadAt,
+    );
   }
 
   // Write merged result to both local DB and Drive
