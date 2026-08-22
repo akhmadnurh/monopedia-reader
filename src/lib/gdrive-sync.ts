@@ -53,7 +53,7 @@ async function fetchWithTimeout(
   const controller = new AbortController();
   const id = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    return await driveFetch(input, { ...init, signal: controller.signal });
+    return await driveFetch(input, { ...init, signal: controller.signal, keepalive: true });
   } finally {
     clearTimeout(id);
   }

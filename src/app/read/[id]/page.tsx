@@ -317,7 +317,7 @@ export default function ReadPage() {
           yang tidak didukung.
         </p>
         <button
-          onClick={() => router.push("/")}
+          onClick={() => router.replace("/")}
           className="mt-2 rounded-lg bg-zinc-100 px-5 py-2.5 text-sm font-medium text-zinc-900 hover:bg-white transition-colors"
         >
           Kembali ke Library
@@ -344,8 +344,9 @@ export default function ReadPage() {
             onClick={async () => {
               if (backSyncGuardRef.current) return;
               backSyncGuardRef.current = true;
-              await syncImmediate();
-              router.push("/");
+              syncImmediate();
+              window.dispatchEvent(new CustomEvent("monopedia:refresh-progress"));
+              router.replace("/");
             }}
             className="flex-none rounded-md p-2 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100 transition-colors"
           >

@@ -60,6 +60,7 @@ export default function Home() {
   const historyPushedRef = useRef(false);
   const exitModalOpenRef = useRef(false);
   const pathname = usePathname();
+  const [refreshKey, setRefreshKey] = useState(0);
 
   // Control bar state
   const [searchQuery, setSearchQuery] = useState("");
@@ -89,6 +90,18 @@ export default function Home() {
       window.removeEventListener("storage", handleStorage);
       clearInterval(id);
     };
+  }, []);
+
+  // Listen for refresh-progress event from Reader page to update progress bars
+  useEffect(() => {
+    function handleRefreshProgress() {
+      // Force re-read of progress data from IndexedDB
+      // useLiveQuery will automatically re-fetch when db.progress changes
+      // but this event ensures the component re-renders
+      setRefreshKey((k) => k + 1);
+    }
+    window.addEventListener("monopedia:refresh-progress", handleRefreshProgress);
+    return () => window.removeEventListener("monopedia:refresh-progress", handleRefreshProgress);
   }, []);
 
   // Push a single dummy state on mount so Back triggers popstate.
@@ -216,7 +229,7 @@ export default function Home() {
   // For "reading status" filter, we need progress data. We'll do a second pass
   // using a separate hook in the grid section.
   // Reactive progressMap — automatically updates when sync writes new progress to IndexedDB
-  const allProgress = useLiveQuery(() => db.progress.toArray(), []);
+  const allProgress = useLiveQuery(() => db.progress.toArray(), [refreshKey]);
   const progressMap = useMemo(() => {
     if (!allProgress) return new Map<number, number>();
     return new Map(allProgress.map((p) => [p.bookId, p.percentage]));
