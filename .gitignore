@@ -57,3 +57,5 @@ graphify.db
 
 # AI Agent instruction files (Opsional)
 AGENTS.md
+
+.github/

@@ -27,7 +27,7 @@ export function BookActionMenu({
   book: BookItem;
   onEdit: () => void;
   onDelete: () => void;
-  onUpload?: () => void;
+  onUpload?: () => Promise<void>;
 }) {
   const [open, setOpen] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -77,7 +77,7 @@ export function BookActionMenu({
     onDelete();
   }
 
-  function handleUpload(e: React.MouseEvent) {
+  async function handleUpload(e: React.MouseEvent) {
     e.preventDefault();
     e.stopPropagation();
     setOpen(false);
@@ -91,7 +91,11 @@ export function BookActionMenu({
       return;
     }
     setUploading(true);
-    onUpload();
+    try {
+      await onUpload();
+    } finally {
+      setUploading(false);
+    }
   }
 
   async function handleShare(e: React.MouseEvent) {

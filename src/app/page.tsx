@@ -3,9 +3,32 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { useRouter, usePathname } from "next/navigation";
-import { BookOpen, Upload, Settings, CloudCheck, CloudUpload, CloudOff, Loader2, Check, Search, ChevronDown, Plus, RefreshCw } from "lucide-react";
-import { saveBook, updateBookMetadata, deleteBookCompletely, db, getProgress } from "@/lib/db";
-import { deleteFileFromDrive, uploadSyncData, uploadBookFile } from "@/lib/gdrive-sync";
+import {
+  BookOpen,
+  Upload,
+  Settings,
+  CloudCheck,
+  CloudUpload,
+  CloudOff,
+  Loader2,
+  Check,
+  Search,
+  ChevronDown,
+  Plus,
+  RefreshCw,
+} from "lucide-react";
+import {
+  saveBook,
+  updateBookMetadata,
+  deleteBookCompletely,
+  db,
+  getProgress,
+} from "@/lib/db";
+import {
+  deleteFileFromDrive,
+  uploadSyncData,
+  uploadBookFile,
+} from "@/lib/gdrive-sync";
 import { isTokenValid, clearToken } from "@/lib/google-auth";
 import { parseEpub, epubFileToBlob } from "@/lib/epub-parser";
 import type { BookItem } from "@/types/book";
@@ -29,7 +52,9 @@ const ALLOWED_MIMES = new Set([
 /* ------------------------------------------------------------------ */
 function Toast({ message, visible }: { message: string; visible: boolean }) {
   return (
-    <div className={`fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-xl border border-zinc-700 bg-zinc-800 px-4 py-3 shadow-2xl transition-opacity duration-300 ${visible ? "opacity-100" : "opacity-0"}`}>
+    <div
+      className={`fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-xl border border-zinc-700 bg-zinc-800 px-4 py-3 shadow-2xl transition-opacity duration-300 ${visible ? "opacity-100" : "opacity-0"}`}
+    >
       <span className="text-sm text-zinc-200">{message}</span>
     </div>
   );
@@ -52,15 +77,24 @@ export default function Home() {
 
   // Control bar state
   const [searchQuery, setSearchQuery] = useState("");
-  const [filterStatus, setFilterStatus] = useState<"all" | "reading" | "unread" | "finished">("all");
-  const [sortBy, setSortBy] = useState<"recently-read" | "recently-added" | "progress-desc" | "title-asc" | "title-desc">("recently-read");
+  const [filterStatus, setFilterStatus] = useState<
+    "all" | "reading" | "unread" | "finished"
+  >("all");
+  const [sortBy, setSortBy] = useState<
+    | "recently-read"
+    | "recently-added"
+    | "progress-desc"
+    | "title-asc"
+    | "title-desc"
+  >("recently-read");
   const [sortOpen, setSortOpen] = useState(false);
   const sortRef = useRef<HTMLDivElement>(null);
 
   // Close sort dropdown on outside click
   useEffect(() => {
     function handleClick(e: MouseEvent) {
-      if (sortRef.current && !sortRef.current.contains(e.target as Node)) setSortOpen(false);
+      if (sortRef.current && !sortRef.current.contains(e.target as Node))
+        setSortOpen(false);
     }
     if (sortOpen) document.addEventListener("mousedown", handleClick);
     return () => document.removeEventListener("mousedown", handleClick);
@@ -88,8 +122,15 @@ export default function Home() {
       // but this event ensures the component re-renders
       setRefreshKey((k) => k + 1);
     }
-    window.addEventListener("monopedia:refresh-progress", handleRefreshProgress);
-    return () => window.removeEventListener("monopedia:refresh-progress", handleRefreshProgress);
+    window.addEventListener(
+      "monopedia:refresh-progress",
+      handleRefreshProgress,
+    );
+    return () =>
+      window.removeEventListener(
+        "monopedia:refresh-progress",
+        handleRefreshProgress,
+      );
   }, []);
 
   // Push dummy state on mount so Back triggers popstate.
@@ -97,7 +138,8 @@ export default function Home() {
   // Skip during OAuth callback so the redirect flow isn't interrupted.
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const isOAuthCallback = params.has("code") || params.has("state") || params.has("error");
+    const isOAuthCallback =
+      params.has("code") || params.has("state") || params.has("error");
     if (isOAuthCallback) return;
 
     if (history.state?.page !== "home") {
@@ -113,7 +155,8 @@ export default function Home() {
     if (pathname !== "/") return;
 
     const params = new URLSearchParams(window.location.search);
-    const isOAuthCallback = params.has("code") || params.has("state") || params.has("error");
+    const isOAuthCallback =
+      params.has("code") || params.has("state") || params.has("error");
     if (isOAuthCallback) return;
 
     function handlePopState(_event: PopStateEvent) {
@@ -130,9 +173,11 @@ export default function Home() {
       }
 
       // Back PERTAMA → show toast
-      window.dispatchEvent(new CustomEvent("monopedia:toast", {
-        detail: "Press back again to exit"
-      }));
+      window.dispatchEvent(
+        new CustomEvent("monopedia:toast", {
+          detail: "Press back again to exit",
+        }),
+      );
 
       // Reset setelah 2 detik
       exitTimerRef.current = setTimeout(() => {
@@ -151,7 +196,13 @@ export default function Home() {
 
   // Desktop File Handling API: receive files opened via OS "Open With"
   useEffect(() => {
-    const w = window as typeof window & { launchQueue?: { setConsumer: (cb: (params: { files: FileSystemFileHandle[] }) => void) => void } };
+    const w = window as typeof window & {
+      launchQueue?: {
+        setConsumer: (
+          cb: (params: { files: FileSystemFileHandle[] }) => void,
+        ) => void;
+      };
+    };
     if (!w.launchQueue) return;
 
     w.launchQueue.setConsumer(async (launchParams) => {
@@ -169,7 +220,8 @@ export default function Home() {
 
           if (ext === "epub") {
             const parsed = await parseEpub(blob, file.name);
-            const autoSync = localStorage.getItem("autoSyncNewBooks") === "true";
+            const autoSync =
+              localStorage.getItem("autoSyncNewBooks") === "true";
             const connected = isTokenValid();
             await saveBook({
               title: parsed.title,
@@ -185,7 +237,8 @@ export default function Home() {
           } else {
             const { parsePdf } = await import("@/lib/pdf-parser");
             const parsed = await parsePdf(blob, file.name);
-            const autoSync = localStorage.getItem("autoSyncNewBooks") === "true";
+            const autoSync =
+              localStorage.getItem("autoSyncNewBooks") === "true";
             const connected = isTokenValid();
             await saveBook({
               title: parsed.title,
@@ -266,17 +319,23 @@ export default function Home() {
         const timeB = lastReadAtMap.get(b.id!) ?? 0;
         return timeB - timeA;
       }
-      if (sortBy === "recently-added") return (b.addedAt ?? 0) - (a.addedAt ?? 0);
-      if (sortBy === "progress-desc") return (progressMap.get(b.id!) ?? 0) - (progressMap.get(a.id!) ?? 0);
-      if (sortBy === "title-asc") return (a.title || "").localeCompare(b.title || "");
-      if (sortBy === "title-desc") return (b.title || "").localeCompare(a.title || "");
+      if (sortBy === "recently-added")
+        return (b.addedAt ?? 0) - (a.addedAt ?? 0);
+      if (sortBy === "progress-desc")
+        return (progressMap.get(b.id!) ?? 0) - (progressMap.get(a.id!) ?? 0);
+      if (sortBy === "title-asc")
+        return (a.title || "").localeCompare(b.title || "");
+      if (sortBy === "title-desc")
+        return (b.title || "").localeCompare(a.title || "");
       return 0;
     });
   }, [displayBooks, filterStatus, progressMap, lastReadAtMap, sortBy]);
 
   // Modal state
   const [editBook, setEditBook] = useState<BookItem | null>(null);
-  const [deleteBookTarget, setDeleteBookTarget] = useState<BookItem | null>(null);
+  const [deleteBookTarget, setDeleteBookTarget] = useState<BookItem | null>(
+    null,
+  );
 
   // Toast state
   const [toastMsg, setToastMsg] = useState<string | null>(null);
@@ -357,11 +416,13 @@ export default function Home() {
           };
           const id = await saveBook(book);
           if (isConnected && autoSync) {
-            uploadBookFile(book).then((driveFileId) => {
-              if (driveFileId) {
-                db.books.update(id, { driveFileId, syncStatus: "synced" });
-              }
-            }).catch(() => {});
+            uploadBookFile(book)
+              .then((driveFileId) => {
+                if (driveFileId) {
+                  db.books.update(id, { driveFileId, syncStatus: "synced" });
+                }
+              })
+              .catch(() => {});
           }
         } else if (ext === "pdf") {
           const { parsePdf } = await import("@/lib/pdf-parser");
@@ -382,15 +443,19 @@ export default function Home() {
           };
           const id = await saveBook(book);
           if (isConnected && autoSync) {
-            uploadBookFile(book).then((driveFileId) => {
-              if (driveFileId) {
-                db.books.update(id, { driveFileId, syncStatus: "synced" });
-              }
-            }).catch(() => {});
+            uploadBookFile(book)
+              .then((driveFileId) => {
+                if (driveFileId) {
+                  db.books.update(id, { driveFileId, syncStatus: "synced" });
+                }
+              })
+              .catch(() => {});
           }
         }
       } catch {
-        showToast(`Gagal mengimpor ${file.name}. File mungkin rusak atau tidak valid.`);
+        showToast(
+          `Gagal mengimpor ${file.name}. File mungkin rusak atau tidak valid.`,
+        );
       }
     }
 
@@ -434,15 +499,20 @@ export default function Home() {
       const driveFileId = await uploadBookFile(book);
       if (driveFileId) {
         await db.books.update(book.id, { driveFileId, syncStatus: "synced" });
+        // Update metadata.json on Drive so other devices see the new book
+        await uploadSyncData();
+        showToast(`${book.title} uploaded to Drive`);
       } else {
         // uploadBookFile returns null on failure (token expired, network error, etc.)
         await db.books.update(book.id, { syncStatus: "local" });
         if (!isTokenValid()) {
           clearToken();
         }
+        showToast(`Upload failed. Please try again.`);
       }
     } catch {
       if (book.id) await db.books.update(book.id, { syncStatus: "local" });
+      showToast(`Upload failed. Please try again.`);
     }
   }, []);
 
@@ -535,7 +605,9 @@ export default function Home() {
             <div className="grid grid-cols-2 gap-2 lg:hidden">
               <select
                 value={filterStatus}
-                onChange={(e) => setFilterStatus(e.target.value as typeof filterStatus)}
+                onChange={(e) =>
+                  setFilterStatus(e.target.value as typeof filterStatus)
+                }
                 className="rounded-lg border border-zinc-800 bg-zinc-900/60 px-3 py-2 text-xs text-zinc-300 outline-none focus:border-zinc-600 appearance-none cursor-pointer"
               >
                 <option value="all">All Status</option>
@@ -560,12 +632,14 @@ export default function Home() {
             <div className="hidden lg:flex items-center justify-between gap-3">
               {/* Filter chips */}
               <div className="flex gap-1.5">
-                {([
-                  ["all", "All"],
-                  ["reading", "Reading"],
-                  ["unread", "Unread"],
-                  ["finished", "Finished"],
-                ] as const).map(([value, label]) => (
+                {(
+                  [
+                    ["all", "All"],
+                    ["reading", "Reading"],
+                    ["unread", "Unread"],
+                    ["finished", "Finished"],
+                  ] as const
+                ).map(([value, label]) => (
                   <button
                     key={value}
                     onClick={() => setFilterStatus(value)}
@@ -592,20 +666,30 @@ export default function Home() {
                   {sortBy === "progress-desc" && "Highest Progress"}
                   {sortBy === "title-asc" && "Title A-Z"}
                   {sortBy === "title-desc" && "Title Z-A"}
-                  <ChevronDown className={cn("h-3 w-3 transition-transform", sortOpen && "rotate-180")} />
+                  <ChevronDown
+                    className={cn(
+                      "h-3 w-3 transition-transform",
+                      sortOpen && "rotate-180",
+                    )}
+                  />
                 </button>
                 {sortOpen && (
                   <div className="absolute right-0 top-full z-50 mt-1 w-44 overflow-hidden rounded-lg border border-zinc-700 bg-zinc-900 shadow-xl">
-                    {([
-                      ["recently-read", "Recently Read"],
-                      ["recently-added", "Recently Added"],
-                      ["progress-desc", "Highest Progress"],
-                      ["title-asc", "Title A-Z"],
-                      ["title-desc", "Title Z-A"],
-                    ] as const).map(([value, label]) => (
+                    {(
+                      [
+                        ["recently-read", "Recently Read"],
+                        ["recently-added", "Recently Added"],
+                        ["progress-desc", "Highest Progress"],
+                        ["title-asc", "Title A-Z"],
+                        ["title-desc", "Title Z-A"],
+                      ] as const
+                    ).map(([value, label]) => (
                       <button
                         key={value}
-                        onClick={() => { setSortBy(value); setSortOpen(false); }}
+                        onClick={() => {
+                          setSortBy(value);
+                          setSortOpen(false);
+                        }}
                         className={cn(
                           "flex w-full items-center px-3 py-2.5 text-sm transition-colors",
                           sortBy === value
@@ -717,7 +801,7 @@ function BookCard({
   book: BookItem;
   onEdit: () => void;
   onDelete: () => void;
-  onUpload: () => void;
+  onUpload: () => Promise<void>;
 }) {
   const router = useRouter();
   const [coverUrl, setCoverUrl] = useState<string | null>(null);
@@ -774,7 +858,11 @@ function BookCard({
               <span className="inline-block rounded bg-zinc-800 px-1.5 py-0.5 text-[10px] font-medium uppercase text-zinc-500">
                 {book.fileType}
               </span>
-              <SyncBadge status={book.driveFileId ? "synced" : (book.syncStatus ?? "local")} />
+              <SyncBadge
+                status={
+                  book.driveFileId ? "synced" : (book.syncStatus ?? "local")
+                }
+              />
             </div>
             {isFinished ? (
               <span className="inline-flex items-center gap-0.5 text-[10px] text-emerald-500">
@@ -792,7 +880,12 @@ function BookCard({
 
       {/* Action menu — absolutely positioned, stops propagation */}
       <div data-action-menu>
-        <BookActionMenu book={book} onEdit={onEdit} onDelete={onDelete} onUpload={onUpload} />
+        <BookActionMenu
+          book={book}
+          onEdit={onEdit}
+          onDelete={onDelete}
+          onUpload={onUpload}
+        />
       </div>
     </div>
   );
