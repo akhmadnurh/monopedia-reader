@@ -44,3 +44,16 @@ next-env.d.ts
 # serwist
 public/sw*
 public/swe-worker*
+
+
+# Graphify generated output & caches
+graphify-out/
+graphify.json
+graphify.db
+.graphify/
+
+# OpenCode local cache & sessions
+.opencode/
+
+# AI Agent instruction files (Opsional)
+AGENTS.md

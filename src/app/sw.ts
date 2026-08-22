@@ -2,7 +2,7 @@
 /// <reference lib="webworker" />
 import { defaultCache } from "@serwist/turbopack/worker";
 import type { PrecacheEntry, SerwistGlobalConfig } from "serwist";
-import { Serwist } from "serwist";
+import { Serwist, NetworkOnly } from "serwist";
 
 declare global {
   interface WorkerGlobalScope extends SerwistGlobalConfig {
@@ -109,12 +109,38 @@ self.addEventListener("fetch", (event) => {
   );
 });
 
+// ── Auth / OAuth routes must NEVER be cached ──
+const authRuntimeCaching = [
+  {
+    // Token exchange & refresh — always hit the network
+    matcher: /\/api\/google-token/,
+    handler: new NetworkOnly(),
+  },
+  {
+    // OAuth callback landing (Google redirects to /?code=...&state=...)
+    matcher: ({ url, sameOrigin }: { url: URL; sameOrigin: boolean }) =>
+      sameOrigin &&
+      url.pathname === "/" &&
+      url.searchParams.has("code") &&
+      url.searchParams.has("state"),
+    handler: new NetworkOnly(),
+  },
+  // OAuth error callback (Google redirects to /?error=...)
+  {
+    matcher: ({ url, sameOrigin }: { url: URL; sameOrigin: boolean }) =>
+      sameOrigin &&
+      url.pathname === "/" &&
+      url.searchParams.has("error"),
+    handler: new NetworkOnly(),
+  },
+];
+
 const serwist = new Serwist({
   precacheEntries: self.__SW_MANIFEST,
   skipWaiting: true,
   clientsClaim: true,
   navigationPreload: true,
-  runtimeCaching: defaultCache,
+  runtimeCaching: [...authRuntimeCaching, ...defaultCache],
 });
 
 serwist.addEventListeners();

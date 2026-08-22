@@ -93,7 +93,12 @@ export default function Home() {
 
   // Push a single dummy state on mount so Back triggers popstate.
   // Skip if already in our trapped state (e.g. navigating back from Settings).
+  // Also skip during OAuth callback so the redirect flow isn't interrupted.
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const isOAuthCallback = params.has("code") || params.has("state") || params.has("error");
+    if (isOAuthCallback) return;
+
     if (historyPushedRef.current) return;
     historyPushedRef.current = true;
     if (history.state?.page !== "home") {
@@ -105,8 +110,14 @@ export default function Home() {
   // and tries to go further back (state === null means the real browser entry).
   // When state is { page: "home" }, the user navigated back TO Home from
   // another page (e.g. Settings) — let it through silently.
+  // Skip during OAuth callback so redirect flow isn't interrupted.
   useEffect(() => {
     if (pathname !== "/") return;
+
+    const params = new URLSearchParams(window.location.search);
+    const isOAuthCallback = params.has("code") || params.has("state") || params.has("error");
+    if (isOAuthCallback) return;
+
     function handlePopState(event: PopStateEvent) {
       // Navigated back TO Home from another page → don't intercept
       if (event.state?.page === "home") return;

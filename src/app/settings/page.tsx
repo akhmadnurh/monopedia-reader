@@ -88,7 +88,12 @@ export default function SettingsPage() {
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Unknown error";
-      setPullResult({ imported: 0, skipped: 0, errors: 1, errorDetails: [msg] });
+      setPullResult({
+        imported: 0,
+        skipped: 0,
+        errors: 1,
+        errorDetails: [msg],
+      });
       if (!isTokenValid()) {
         clearToken();
         setConnected(false);
@@ -104,7 +109,7 @@ export default function SettingsPage() {
       <header className="sticky top-0 z-10 border-b border-zinc-800 bg-zinc-950/80 backdrop-blur-md">
         <div className="mx-auto flex h-14 max-w-2xl items-center gap-3 px-4">
           <button
-            onClick={() => router.back()}
+            onClick={() => router.push("/")}
             className="rounded-lg p-2 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100 transition-colors"
           >
             <ArrowLeft className="h-4 w-4" />
@@ -115,7 +120,6 @@ export default function SettingsPage() {
 
       <main className="flex flex-1 flex-col px-4 py-8">
         <div className="mx-auto w-full max-w-2xl space-y-8">
-
           {/* ── Install Section ── */}
           <section className="space-y-3">
             <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
@@ -123,7 +127,8 @@ export default function SettingsPage() {
             </h2>
             <div className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-5">
               <p className="mb-4 text-sm text-zinc-400 leading-relaxed">
-                Install Monopedia Reader on your device for quick access and offline use.
+                Install Monopedia Reader on your device for quick access and
+                offline use.
               </p>
               <InstallPwaButton />
             </div>
@@ -136,8 +141,9 @@ export default function SettingsPage() {
             </h2>
             <div className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-5 space-y-4">
               <p className="text-sm text-zinc-400 leading-relaxed">
-                Connect your Google Drive to sync books and reading progress across devices.
-                Your files stay in your own Drive — we never store them on external servers.
+                Connect your Google Drive to sync books and reading progress
+                across devices. Your files stay in your own Drive — we never
+                store them on external servers.
               </p>
 
               {/* Connect / Disconnect button */}
@@ -149,7 +155,9 @@ export default function SettingsPage() {
                   {/* Switch: Auto-upload new books */}
                   <div className="flex items-center justify-between rounded-lg border border-zinc-800 bg-zinc-800/40 px-4 py-3">
                     <div className="pr-4">
-                      <p className="text-sm font-medium text-zinc-200">Auto-upload new books</p>
+                      <p className="text-sm font-medium text-zinc-200">
+                        Auto-upload new books
+                      </p>
                       <p className="mt-0.5 text-xs text-zinc-500">
                         Automatically sync newly imported books to Drive
                       </p>
@@ -166,9 +174,12 @@ export default function SettingsPage() {
                   {/* Switch: Auto-sync reading progress */}
                   <div className="flex items-center justify-between rounded-lg border border-zinc-800 bg-zinc-800/40 px-4 py-3">
                     <div className="pr-4">
-                      <p className="text-sm font-medium text-zinc-200">Auto-sync reading progress</p>
+                      <p className="text-sm font-medium text-zinc-200">
+                        Auto-sync reading progress
+                      </p>
                       <p className="mt-0.5 text-xs text-zinc-500">
-                        Push progress to Drive and pull cross-device updates automatically
+                        Push progress to Drive and pull cross-device updates
+                        automatically
                       </p>
                     </div>
                     <Switch
@@ -212,14 +223,19 @@ export default function SettingsPage() {
                           <CheckCircle className="h-4 w-4 shrink-0" />
                         )}
                         <span>
-                          {pullResult.imported > 0 && `${pullResult.imported} imported`}
-                          {pullResult.imported > 0 && pullResult.skipped > 0 && ", "}
-                          {pullResult.skipped > 0 && `${pullResult.skipped} already exist`}
+                          {pullResult.imported > 0 &&
+                            `${pullResult.imported} imported`}
+                          {pullResult.imported > 0 &&
+                            pullResult.skipped > 0 &&
+                            ", "}
+                          {pullResult.skipped > 0 &&
+                            `${pullResult.skipped} already exist`}
                           {pullResult.imported === 0 &&
                             pullResult.skipped === 0 &&
                             pullResult.errors === 0 &&
                             "No new books found"}
-                          {pullResult.errors > 0 && `${pullResult.errors} failed`}
+                          {pullResult.errors > 0 &&
+                            `${pullResult.errors} failed`}
                         </span>
                       </div>
                       {pullResult.errorDetails.length > 0 && (
@@ -267,8 +283,9 @@ export default function SettingsPage() {
               <div className="flex items-start gap-3 px-5 py-3.5">
                 <Info className="h-4 w-4 shrink-0 mt-0.5 text-zinc-500" />
                 <p className="text-xs text-zinc-500 leading-relaxed">
-                  All book files and reading data are stored locally in your browser.
-                  Cloud sync is optional and uses your personal Google Drive.
+                  All book files and reading data are stored locally in your
+                  browser. Cloud sync is optional and uses your personal Google
+                  Drive.
                 </p>
               </div>
             </div>
